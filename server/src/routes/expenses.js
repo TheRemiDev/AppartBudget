@@ -29,7 +29,7 @@ const expenseSchema = z.object({
   label: z.string().min(1).max(120),
   amount: z.number().positive(),
   date: z.string().datetime().or(z.string().regex(/^\d{4}-\d{2}-\d{2}$/)),
-  kind: z.enum(["fixed", "exceptional"]),
+  kind: z.enum(["fixed", "occasional", "exceptional"]),
   notes: z.string().max(2000).optional().nullable(),
   categoryId: z.string(),
   splitType: z.enum(["equal", "percentage", "custom"]).default("equal"),

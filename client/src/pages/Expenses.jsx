@@ -10,10 +10,12 @@ import Avatar from "../components/Avatar.jsx";
 import Icon from "../components/Icon.jsx";
 import { formatAmount, formatDate } from "../utils/format.js";
 import { getPeriodRange } from "../utils/period.js";
+import { kindLabel } from "../utils/kind.js";
 
 const KIND_FILTER_OPTIONS = [
   { value: "all", label: "Tous les types" },
   { value: "fixed", label: "Frais fixes" },
+  { value: "occasional", label: "Frais ponctuels" },
   { value: "exceptional", label: "Frais exceptionnels" },
 ];
 
@@ -143,7 +145,7 @@ export default function Expenses() {
                   <td>
                     <div style={{ fontWeight: 600, marginBottom: 4 }}>{e.label}</div>
                     <span className={`pill pill--kind-${e.kind}`}>
-                      {e.kind === "fixed" ? "Fixe" : "Exceptionnel"}
+                      {kindLabel(e.kind)}
                     </span>
                     {e.notes && (
                       <div

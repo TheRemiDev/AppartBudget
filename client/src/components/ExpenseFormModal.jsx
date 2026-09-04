@@ -4,19 +4,15 @@ import Select from "./Select.jsx";
 import SplitEditor, { buildDefaultSplitValue, isSplitValid } from "./SplitEditor.jsx";
 import { api } from "../api/client.js";
 import { toInputDate } from "../utils/format.js";
-
-const KIND_OPTIONS = [
-  { value: "fixed", label: "Frais fixe" },
-  { value: "exceptional", label: "Frais exceptionnel" },
-];
+import { KIND_OPTIONS } from "../utils/kind.js";
 
 export default function ExpenseFormModal({ categories, users, expense, onClose, onSaved }) {
   const isEdit = Boolean(expense);
   const [label, setLabel] = useState(expense?.label || "");
   const [amount, setAmount] = useState(expense?.amount ?? "");
   const [date, setDate] = useState(expense ? toInputDate(expense.date) : toInputDate(new Date()));
-  const [kind, setKind] = useState(expense?.kind || "exceptional");
   const [categoryId, setCategoryId] = useState(expense?.categoryId || categories[0]?.id || "");
+  const [kind, setKind] = useState(expense?.kind || categories[0]?.kind || "occasional");
   const [notes, setNotes] = useState(expense?.notes || "");
   const [split, setSplit] = useState(
     expense

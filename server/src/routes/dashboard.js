@@ -34,6 +34,9 @@ dashboardRouter.get(
 
     const totalAmount = expenses.reduce((s, e) => s + e.amount, 0);
     const totalFixed = expenses.filter((e) => e.kind === "fixed").reduce((s, e) => s + e.amount, 0);
+    const totalOccasional = expenses
+      .filter((e) => e.kind === "occasional")
+      .reduce((s, e) => s + e.amount, 0);
     const totalExceptional = expenses
       .filter((e) => e.kind === "exceptional")
       .reduce((s, e) => s + e.amount, 0);
@@ -105,6 +108,7 @@ dashboardRouter.get(
     res.json({
       totalAmount: round2(totalAmount),
       totalFixed: round2(totalFixed),
+      totalOccasional: round2(totalOccasional),
       totalExceptional: round2(totalExceptional),
       expenseCount: expenses.length,
       byCategory: [...byCategoryMap.values()]
@@ -187,6 +191,7 @@ dashboardRouter.get(
         key: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`,
         label: d.toLocaleDateString("fr-FR", { month: "short", year: "2-digit" }),
         fixed: 0,
+        occasional: 0,
         exceptional: 0,
       });
     }
@@ -198,6 +203,7 @@ dashboardRouter.get(
       const bucket = bucketByKey.get(key);
       if (!bucket) continue;
       if (e.kind === "fixed") bucket.fixed = round2(bucket.fixed + e.amount);
+      else if (e.kind === "occasional") bucket.occasional = round2(bucket.occasional + e.amount);
       else bucket.exceptional = round2(bucket.exceptional + e.amount);
     }
 
