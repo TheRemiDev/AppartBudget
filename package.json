@@ -15,6 +15,6 @@
     "prisma:generate": "npm run prisma:generate --workspace server",
     "prisma:migrate": "npm run prisma:migrate --workspace server",
     "seed:categories": "npm run seed:categories --workspace server",
-    "create-user": "npm run create-user --workspace server"
+    "create-user": "npm run create-user --workspace server --"
   }
 }

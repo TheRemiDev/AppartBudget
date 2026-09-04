@@ -47,6 +47,9 @@ AppartBudget/
 │   ├── scripts/        # création d'utilisateurs, seed des catégories
 │   └── src/
 ├── client/            # Application React (Vite)
+├── scripts/
+│   ├── install.sh      # Installation automatique complete (VPS)
+│   └── update.sh        # Mise a jour depuis Git + redemarrage
 ├── ecosystem.config.js # Config PM2
 └── README.md
 ```
@@ -88,7 +91,55 @@ L'application est conçue pour cohabiter avec d'autres programmes Node déjà
 en place : elle tourne dans **son propre process**, sur **son propre port**,
 avec **sa propre base de données fichier** — rien n'est partagé.
 
-### 1. Récupérer le projet et l'installer
+### Installation automatique en une commande (recommandé)
+
+Sur un VPS **Debian/Ubuntu**, `scripts/install.sh` fait tout, de zéro à
+l'application accessible en HTTPS sur votre nom de domaine : installation de
+Node.js/PM2/nginx/certbot si nécessaire, dépendances, base de données,
+création de vos deux comptes, build du frontend, process PM2, reverse proxy
+nginx, certificat SSL Let's Encrypt, et sauvegarde quotidienne automatique.
+
+```bash
+cd /var/www                                  # ou tout autre dossier dédié à vos apps
+git clone <url-du-repo> appartbudget
+cd appartbudget
+
+sudo ./scripts/install.sh \
+  --domain budget.mondomaine.fr \
+  --email vous@example.com \
+  --user1-email vous@example.com --user1-name "Vous" --user1-password "un-mot-de-passe-solide" --user1-color "#4f46e5" \
+  --user2-email conjoint@example.com --user2-name "Conjoint" --user2-password "un-mot-de-passe-solide" --user2-color "#ec4899"
+```
+
+Le nom de domaine doit déjà pointer (enregistrement DNS de type A) vers
+l'adresse IP du VPS avant de lancer le script, pour que le certificat SSL
+puisse être délivré.
+
+Si vous préférez répondre aux questions au fur et à mesure plutôt que tout
+passer en arguments, lancez simplement :
+
+```bash
+sudo ./scripts/install.sh --domain budget.mondomaine.fr --email vous@example.com
+```
+
+Le script est **idempotent** : le relancer plus tard (après un `git pull`,
+par exemple) met simplement à jour l'installation existante sans rien
+casser. Options utiles : `--port 4310` (choisir un autre port applicatif),
+`--skip-ssl` (rester en HTTP, par exemple en test), `--skip-packages` (ne
+pas toucher aux paquets système si nginx/certbot/Node sont déjà gérés
+autrement). Voir `./scripts/install.sh --help` pour le détail.
+
+Une fois installée, l'application se met à jour très simplement (voir
+[Mettre à jour l'application](#mettre-à-jour-lapplication) plus bas) — plus
+besoin de refaire tourner `install.sh` avec tous ses arguments.
+
+Sur un système autre que Debian/Ubuntu (ou pour garder la main sur chaque
+étape), suivez l'installation manuelle détaillée ci-dessous — c'est
+exactement ce que fait le script en coulisses.
+
+### Installation manuelle, étape par étape
+
+#### 1. Récupérer le projet et l'installer
 
 ```bash
 cd /var/www              # ou tout autre dossier dédié à vos apps
@@ -97,7 +148,7 @@ cd appartbudget
 npm install
 ```
 
-### 2. Configurer l'environnement
+#### 2. Configurer l'environnement
 
 ```bash
 cp server/.env.example server/.env
@@ -112,7 +163,7 @@ Dans `server/.env` :
 - `TRUST_PROXY_HTTPS=true` si vous passez par un reverse proxy HTTPS
   (recommandé, voir plus bas).
 
-### 3. Initialiser la base de données et les comptes
+#### 3. Initialiser la base de données et les comptes
 
 ```bash
 npm run prisma:migrate --workspace server   # applique les migrations (prisma migrate deploy)
@@ -121,7 +172,7 @@ npm run create-user -- --email vous@example.com --name "Vous" --password "..." -
 npm run create-user -- --email conjoint@example.com --name "Conjoint" --password "..." --color "#ec4899"
 ```
 
-### 4. Construire le frontend
+#### 4. Construire le frontend
 
 ```bash
 npm run build
@@ -130,7 +181,7 @@ npm run build
 Le serveur Express sert automatiquement `client/dist` en production —
 un seul process à faire tourner.
 
-### 5. Démarrer avec PM2 (recommandé)
+#### 5. Démarrer avec PM2 (recommandé)
 
 PM2 permet de faire cohabiter plusieurs applications Node sur le même VPS,
 chacune identifiée par un nom de process distinct.
@@ -153,7 +204,7 @@ pm2 restart appartbudget
 pm2 stop appartbudget
 ```
 
-### 6. Exposer l'application via un reverse proxy (recommandé)
+#### 6. Exposer l'application via un reverse proxy (recommandé)
 
 Pour un accès HTTPS propre (ex: `budget.mondomaine.fr`) sans exposer le
 port applicatif directement, utilisez nginx comme reverse proxy — c'est
@@ -193,18 +244,7 @@ Une fois le HTTPS actif, repassez dans `server/.env` mettre
 `TRUST_PROXY_HTTPS=true` puis `pm2 restart appartbudget` pour que le cookie
 de session soit marqué `secure`.
 
-### 7. Mettre à jour l'application plus tard
-
-```bash
-cd /var/www/appartbudget
-git pull
-npm install
-npm run prisma:migrate --workspace server
-npm run build
-pm2 restart appartbudget
-```
-
-### 8. Sauvegarder vos données
+#### 7. Sauvegarder vos données
 
 Toutes les données vivent dans un seul fichier SQLite :
 `server/data/appartbudget.db`. Une sauvegarde régulière suffit :
@@ -213,6 +253,42 @@ Toutes les données vivent dans un seul fichier SQLite :
 # exemple de cron quotidien (crontab -e)
 0 4 * * * cp /var/www/appartbudget/server/data/appartbudget.db /var/backups/appartbudget-$(date +\%F).db
 ```
+
+(`install.sh` configure déjà cette sauvegarde automatiquement, voir plus bas.)
+
+## Mettre à jour l'application
+
+Depuis le dossier du projet sur le VPS :
+
+```bash
+./scripts/update.sh
+```
+
+Ce script se charge de tout, **sans jamais avoir besoin de faire vous-même
+un `git checkout main && git pull`** :
+
+1. Se remet toujours sur la bonne branche (`main` par défaut) et la
+   resynchronise exactement avec `origin` (`git fetch` + reset propre) —
+   peu importe l'état dans lequel se trouvait le dépôt local.
+2. Réinstalle les dépendances si besoin (le client Prisma est régénéré
+   automatiquement).
+3. Applique les nouvelles migrations de base de données.
+4. Recompile le frontend.
+5. Recharge l'application via PM2 sans interruption de service
+   (`pm2 reload`).
+
+Options :
+- `./scripts/update.sh --branch develop` — mettre à jour depuis une autre
+  branche que `main`.
+- `./scripts/update.sh --force` — écrase aussi d'éventuelles modifications
+  locales non commitées sur le serveur (à utiliser en connaissance de
+  cause : normalement, rien ne devrait être modifié à la main sur le VPS).
+- `./scripts/update.sh --no-restart` — met à jour le code sans redémarrer
+  l'application.
+
+Le script peut aussi être planifié en tâche cron pour se mettre à jour tout
+seul (ex: chaque nuit) — voir l'en-tête de `scripts/update.sh` pour
+l'exemple de ligne crontab.
 
 ## Sécurité
 

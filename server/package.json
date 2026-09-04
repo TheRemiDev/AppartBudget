@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "postinstall": "prisma generate",
     "dev": "node --watch src/index.js",
     "start": "node src/index.js",
     "prisma:generate": "prisma generate",
