@@ -112,7 +112,15 @@ fi
 
 step "Installation des dependances"
 as_owner npm install
-ok "Dependances a jour (le client Prisma est regenere automatiquement)."
+ok "Dependances a jour."
+
+# npm install ne relance pas toujours le hook postinstall (prisma generate)
+# selon l'etat du lockfile : on le regenere donc explicitement a chaque
+# deploiement pour ne jamais faire tourner un client Prisma perime face a
+# un schema.prisma plus recent (source d'erreurs "Unknown field ...").
+step "Generation du client Prisma"
+as_owner npm run prisma:generate --workspace server
+ok "Client Prisma a jour avec le schema courant."
 
 step "Application des migrations de base de donnees"
 as_owner npm run prisma:migrate --workspace server
