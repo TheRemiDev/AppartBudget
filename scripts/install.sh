@@ -134,7 +134,7 @@ else
 
   export DEBIAN_FRONTEND=noninteractive
   apt-get update -y
-  apt-get install -y curl ca-certificates gnupg nginx software-properties-common
+  apt-get install -y curl ca-certificates gnupg nginx
   ok "Paquets de base installes (nginx inclus)."
 
   if command -v certbot >/dev/null 2>&1; then
