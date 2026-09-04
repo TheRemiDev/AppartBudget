@@ -18,6 +18,7 @@ model User {
 
   expensesCreated    Expense[]           @relation("ExpenseCreatedBy")
   shares             ExpenseShare[]
+  paymentsMade       SharePayment[]      @relation("SharePaymentPaidBy")
   templatesCreated   RecurringTemplate[] @relation("TemplateCreatedBy")
 }
 
@@ -71,8 +72,31 @@ model ExpenseShare {
   paid      Boolean   @default(false)
   paidAt    DateTime?
 
+  payments SharePayment[]
+
   @@unique([expenseId, userId])
   @@index([userId])
+}
+
+// Un versement partiel (ou total) effectue sur une part de depense. Permet
+// de regler une part en plusieurs fois et de conserver un historique
+// annulable versement par versement, plutot qu'un simple booleen paye/impaye.
+// paidByUserId peut differer de la personne a qui appartient la part
+// (ExpenseShare.userId) : un membre du foyer peut regler la part de l'autre,
+// et l'historique garde la trace exacte de qui a reellement paye.
+model SharePayment {
+  id           String       @id @default(cuid())
+  shareId      String
+  share        ExpenseShare @relation(fields: [shareId], references: [id], onDelete: Cascade)
+  amount       Float
+  date         DateTime     @default(now())
+  note         String?
+  paidByUserId String
+  paidBy       User         @relation("SharePaymentPaidBy", fields: [paidByUserId], references: [id])
+  createdAt    DateTime     @default(now())
+
+  @@index([shareId])
+  @@index([paidByUserId])
 }
 
 model RecurringTemplate {

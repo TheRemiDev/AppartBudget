@@ -1,4 +1,5 @@
 import { formatPeriodLabel, shiftAnchor } from "../utils/period.js";
+import Icon from "./Icon.jsx";
 
 const OPTIONS = [
   { value: "week", label: "Semaine" },
@@ -23,12 +24,12 @@ export default function PeriodSelector({ period, onPeriodChange, anchor, onAncho
       </div>
 
       <div className="period-nav">
-        <button className="icon-btn" onClick={() => onAnchorChange(shiftAnchor(period, anchor, -1))} type="button">
-          ‹
+        <button className="icon-btn" onClick={() => onAnchorChange(shiftAnchor(period, anchor, -1))} type="button" aria-label="Periode precedente">
+          <Icon name="chevronLeft" size={16} />
         </button>
         <div className="period-nav__label">{formatPeriodLabel(period, anchor)}</div>
-        <button className="icon-btn" onClick={() => onAnchorChange(shiftAnchor(period, anchor, 1))} type="button">
-          ›
+        <button className="icon-btn" onClick={() => onAnchorChange(shiftAnchor(period, anchor, 1))} type="button" aria-label="Periode suivante">
+          <Icon name="chevronRight" size={16} />
         </button>
         <button className="btn btn--ghost btn--sm" onClick={() => onAnchorChange(new Date())} type="button">
           Aujourd'hui

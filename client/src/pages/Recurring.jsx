@@ -1,10 +1,15 @@
 import { useEffect, useState } from "react";
 import { api } from "../api/client.js";
 import Modal from "../components/Modal.jsx";
+import Select from "../components/Select.jsx";
 import SplitEditor, { buildDefaultSplitValue, isSplitValid } from "../components/SplitEditor.jsx";
+import Icon from "../components/Icon.jsx";
+import { useConfirm, useToast } from "../context/UIContext.jsx";
 import { formatAmount } from "../utils/format.js";
 
 export default function Recurring() {
+  const confirmAction = useConfirm();
+  const showToast = useToast();
   const [templates, setTemplates] = useState([]);
   const [categories, setCategories] = useState([]);
   const [users, setUsers] = useState([]);
@@ -44,8 +49,15 @@ export default function Recurring() {
   }
 
   async function remove(template) {
-    if (!confirm(`Supprimer le modèle récurrent "${template.label}" ?`)) return;
+    const ok = await confirmAction({
+      title: "Supprimer la charge récurrente",
+      message: `Supprimer définitivement "${template.label}" ? Les dépenses déjà générées ne seront pas supprimées.`,
+      confirmLabel: "Supprimer",
+      danger: true,
+    });
+    if (!ok) return;
     await api.delete(`/recurring-templates/${template.id}`);
+    showToast(`"${template.label}" supprimée.`);
     load();
   }
 
@@ -53,9 +65,9 @@ export default function Recurring() {
     setGeneratingId(template.id);
     try {
       await api.post(`/recurring-templates/${template.id}/generate-now`);
-      alert(`"${template.label}" a été généré pour le mois en cours.`);
+      showToast(`"${template.label}" a été générée pour le mois en cours.`);
     } catch (err) {
-      alert(err.message);
+      showToast(err.message, "error");
     } finally {
       setGeneratingId(null);
     }
@@ -71,7 +83,7 @@ export default function Recurring() {
           </div>
         </div>
         <button className="btn btn--primary" onClick={() => setModalState({})}>
-          + Nouvelle charge récurrente
+          <Icon name="plus" size={15} /> Nouvelle charge récurrente
         </button>
       </div>
 
@@ -81,8 +93,9 @@ export default function Recurring() {
             <div className="spinner" />
           </div>
         ) : templates.length === 0 ? (
-          <div className="table-empty">
-            Aucune charge récurrente. Ajoutez le loyer, l'électricité, le gaz, l'internet...
+          <div className="empty-state">
+            <Icon name="repeat" size={26} />
+            <span>Aucune charge récurrente. Ajoutez le loyer, l'électricité, le gaz, l'internet...</span>
           </div>
         ) : (
           <table className="table">
@@ -111,18 +124,28 @@ export default function Recurring() {
                     {t.active ? (
                       <span className="pill pill--paid">Active</span>
                     ) : (
-                      <span className="pill" style={{ background: "var(--color-surface-2)" }}>En pause</span>
+                      <span className="pill pill--neutral">En pause</span>
                     )}
                   </td>
-                  <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
-                    <button className="btn btn--ghost btn--sm" onClick={() => generateNow(t)} disabled={generatingId === t.id}>
-                      Générer ce mois
-                    </button>
-                    <button className="icon-btn" title="Modifier" onClick={() => setModalState({ template: t })} style={{ marginLeft: 6 }}>✎</button>
-                    <button className="icon-btn" title={t.active ? "Mettre en pause" : "Réactiver"} onClick={() => toggleActive(t)} style={{ marginLeft: 6 }}>
-                      {t.active ? "⏸" : "↺"}
-                    </button>
-                    <button className="icon-btn" title="Supprimer" onClick={() => remove(t)} style={{ marginLeft: 6 }}>🗑</button>
+                  <td style={{ textAlign: "right" }}>
+                    <div className="row-actions">
+                      <button className="btn btn--ghost btn--sm" onClick={() => generateNow(t)} disabled={generatingId === t.id}>
+                        Générer ce mois
+                      </button>
+                      <button className="icon-btn" title="Modifier" onClick={() => setModalState({ template: t })}>
+                        <Icon name="pencil" size={14} />
+                      </button>
+                      <button
+                        className="icon-btn"
+                        title={t.active ? "Mettre en pause" : "Réactiver"}
+                        onClick={() => toggleActive(t)}
+                      >
+                        <Icon name={t.active ? "pause" : "play"} size={14} />
+                      </button>
+                      <button className="icon-btn icon-btn--danger" title="Supprimer" onClick={() => remove(t)}>
+                        <Icon name="trash" size={14} />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -139,6 +162,7 @@ export default function Recurring() {
           onClose={() => setModalState(null)}
           onSaved={() => {
             setModalState(null);
+            showToast("Charge récurrente enregistrée.");
             load();
           }}
         />
@@ -233,13 +257,13 @@ function RecurringFormModal({ categories, users, template, onClose, onSaved }) {
 
         <div className="field">
           <label htmlFor="r-category">Catégorie</label>
-          <select id="r-category" value={categoryId} onChange={(e) => setCategoryId(e.target.value)} required>
-            {categories.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.icon} {c.name}
-              </option>
-            ))}
-          </select>
+          <Select
+            id="r-category"
+            value={categoryId}
+            onChange={setCategoryId}
+            options={categories.map((c) => ({ value: c.id, label: c.name, icon: c.icon }))}
+            placeholder="Choisir une catégorie"
+          />
         </div>
 
         <div className="field">

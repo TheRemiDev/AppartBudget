@@ -1,10 +1,20 @@
 import { useEffect, useState } from "react";
 import { api } from "../api/client.js";
 import Modal from "../components/Modal.jsx";
+import Select from "../components/Select.jsx";
+import Icon from "../components/Icon.jsx";
+import { useConfirm, useToast } from "../context/UIContext.jsx";
 
 const EMPTY_FORM = { name: "", icon: "💶", color: "#6366f1", kind: "exceptional", defaultAmount: "" };
 
+const KIND_OPTIONS = [
+  { value: "fixed", label: "Frais fixe" },
+  { value: "exceptional", label: "Frais exceptionnel" },
+];
+
 export default function Categories() {
+  const confirmAction = useConfirm();
+  const showToast = useToast();
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
   const [modalState, setModalState] = useState(null); // null | { category? }
@@ -59,6 +69,7 @@ export default function Categories() {
         await api.post("/categories", payload);
       }
       setModalState(null);
+      showToast(`Catégorie "${payload.name}" enregistrée.`);
       load();
     } catch (err) {
       setError(err.message || "Impossible d'enregistrer la catégorie.");
@@ -73,8 +84,19 @@ export default function Categories() {
   }
 
   async function remove(category) {
-    if (!confirm(`Supprimer la catégorie "${category.name}" ?`)) return;
-    await api.delete(`/categories/${category.id}`);
+    const ok = await confirmAction({
+      title: "Supprimer la catégorie",
+      message: `Supprimer définitivement "${category.name}" ? Si elle est déjà utilisée par des dépenses, elle sera archivée à la place.`,
+      confirmLabel: "Supprimer",
+      danger: true,
+    });
+    if (!ok) return;
+    const res = await api.delete(`/categories/${category.id}`);
+    showToast(
+      res.archived
+        ? `"${category.name}" est utilisée par des dépenses : elle a été archivée.`
+        : `Catégorie "${category.name}" supprimée.`
+    );
     load();
   }
 
@@ -86,7 +108,7 @@ export default function Categories() {
           <div className="topbar__subtitle">Personnalisez les types de dépenses du foyer</div>
         </div>
         <button className="btn btn--primary" onClick={openCreate}>
-          + Nouvelle catégorie
+          <Icon name="plus" size={15} /> Nouvelle catégorie
         </button>
       </div>
 
@@ -94,6 +116,11 @@ export default function Categories() {
         {loading ? (
           <div className="center-screen" style={{ minHeight: 200 }}>
             <div className="spinner" />
+          </div>
+        ) : categories.length === 0 ? (
+          <div className="empty-state">
+            <Icon name="tag" size={26} />
+            <span>Aucune catégorie pour l'instant.</span>
           </div>
         ) : (
           <table className="table">
@@ -120,22 +147,27 @@ export default function Categories() {
                   <td className="text-muted">{c.defaultAmount ? `${c.defaultAmount.toFixed(2)} €` : "—"}</td>
                   <td>
                     {c.archived ? (
-                      <span className="pill" style={{ background: "var(--color-surface-2)" }}>Archivée</span>
+                      <span className="pill pill--neutral">Archivée</span>
                     ) : (
                       <span className="pill pill--paid">Active</span>
                     )}
                   </td>
-                  <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
-                    <button className="icon-btn" title="Modifier" onClick={() => openEdit(c)}>✎</button>
-                    <button
-                      className="icon-btn"
-                      title={c.archived ? "Réactiver" : "Archiver"}
-                      onClick={() => toggleArchive(c)}
-                      style={{ marginLeft: 6 }}
-                    >
-                      {c.archived ? "↺" : "⏸"}
-                    </button>
-                    <button className="icon-btn" title="Supprimer" onClick={() => remove(c)} style={{ marginLeft: 6 }}>🗑</button>
+                  <td style={{ textAlign: "right" }}>
+                    <div className="row-actions">
+                      <button className="icon-btn" title="Modifier" onClick={() => openEdit(c)}>
+                        <Icon name="pencil" size={14} />
+                      </button>
+                      <button
+                        className="icon-btn"
+                        title={c.archived ? "Réactiver" : "Archiver"}
+                        onClick={() => toggleArchive(c)}
+                      >
+                        <Icon name={c.archived ? "play" : "pause"} size={14} />
+                      </button>
+                      <button className="icon-btn icon-btn--danger" title="Supprimer" onClick={() => remove(c)}>
+                        <Icon name="trash" size={14} />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -178,10 +210,12 @@ export default function Categories() {
             <div className="field-row">
               <div className="field">
                 <label htmlFor="cat-kind">Type par défaut</label>
-                <select id="cat-kind" value={form.kind} onChange={(e) => setForm({ ...form, kind: e.target.value })}>
-                  <option value="fixed">Frais fixe</option>
-                  <option value="exceptional">Frais exceptionnel</option>
-                </select>
+                <Select
+                  id="cat-kind"
+                  value={form.kind}
+                  onChange={(kind) => setForm({ ...form, kind })}
+                  options={KIND_OPTIONS}
+                />
               </div>
               <div className="field">
                 <label htmlFor="cat-amount">Montant habituel (optionnel)</label>
