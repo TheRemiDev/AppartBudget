@@ -1,0 +1,96 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String
+  passwordHash String
+  color        String   @default("#6366f1")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  expensesCreated    Expense[]           @relation("ExpenseCreatedBy")
+  shares             ExpenseShare[]
+  templatesCreated   RecurringTemplate[] @relation("TemplateCreatedBy")
+}
+
+model Category {
+  id            String   @id @default(cuid())
+  name          String
+  icon          String   @default("EUR")
+  color         String   @default("#64748b")
+  kind          String // "fixed" | "exceptional"
+  defaultAmount Float?
+  archived      Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  expenses            Expense[]
+  recurringTemplates  RecurringTemplate[]
+
+  @@index([kind])
+}
+
+model Expense {
+  id          String    @id @default(cuid())
+  label       String
+  amount      Float
+  date        DateTime
+  kind        String // "fixed" | "exceptional"
+  notes       String?
+  categoryId  String
+  category    Category  @relation(fields: [categoryId], references: [id])
+  createdById String
+  createdBy   User      @relation("ExpenseCreatedBy", fields: [createdById], references: [id])
+  templateId  String?
+  template    RecurringTemplate? @relation(fields: [templateId], references: [id])
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  shares ExpenseShare[]
+
+  @@index([date])
+  @@index([categoryId])
+  @@index([templateId])
+}
+
+model ExpenseShare {
+  id        String    @id @default(cuid())
+  expenseId String
+  expense   Expense   @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User      @relation(fields: [userId], references: [id])
+  amount    Float
+  paid      Boolean   @default(false)
+  paidAt    DateTime?
+
+  @@unique([expenseId, userId])
+  @@index([userId])
+}
+
+model RecurringTemplate {
+  id          String   @id @default(cuid())
+  label       String
+  amount      Float
+  categoryId  String
+  category    Category @relation(fields: [categoryId], references: [id])
+  dayOfMonth  Int      @default(1)
+  splitType   String   @default("equal") // "equal" | "percentage" | "custom" | "full"
+  splitConfig String // JSON string: [{ userId, value }]
+  active      Boolean  @default(true)
+  createdById String
+  createdBy   User     @relation("TemplateCreatedBy", fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  expenses Expense[]
+
+  @@index([categoryId])
+}
