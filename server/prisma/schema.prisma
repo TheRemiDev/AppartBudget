@@ -22,6 +22,7 @@ model User {
   templatesCreated   RecurringTemplate[] @relation("TemplateCreatedBy")
   installmentPlansCreated InstallmentPlan[] @relation("InstallmentPlanCreatedBy")
   personalTransactions PersonalTransaction[]
+  personalRecurringTemplates PersonalRecurringTemplate[]
 }
 
 // Budget personnel d'un membre : revenus et depenses qui lui sont propres,
@@ -41,11 +42,37 @@ model PersonalTransaction {
   groupId          String?
   installmentIndex Int?
   installmentCount Int?
+  // Ligne generee automatiquement par un abonnement/revenu recurrent
+  // indefini (ex: forfait telephonique), distinct des mensualites ci-dessus
+  // qui ont un nombre de fois connu a l'avance.
+  recurringTemplateId String?
+  recurringTemplate   PersonalRecurringTemplate? @relation(fields: [recurringTemplateId], references: [id], onDelete: SetNull)
   createdAt        DateTime @default(now())
 
   @@index([userId])
   @@index([date])
   @@index([groupId])
+  @@index([recurringTemplateId])
+}
+
+// Abonnement ou revenu personnel qui se repete indefiniment chaque mois
+// (ex: forfait telephonique, salaire), par opposition a PersonalTransaction
+// avec groupId qui a un nombre de mensualites fixe et connu a l'avance.
+model PersonalRecurringTemplate {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id])
+  label      String
+  amount     Float
+  kind       String // "income" | "expense"
+  dayOfMonth Int      @default(1)
+  active     Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  transactions PersonalTransaction[]
+
+  @@index([userId])
 }
 
 model Category {

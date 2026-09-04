@@ -20,8 +20,11 @@ export default function Personal() {
   const [anchor, setAnchor] = useState(new Date());
   const [summary, setSummary] = useState(null);
   const [groups, setGroups] = useState([]);
+  const [recurringTemplates, setRecurringTemplates] = useState([]);
   const [loading, setLoading] = useState(true);
   const [modalState, setModalState] = useState(null); // null | { kind, transaction? }
+  const [recurringModalState, setRecurringModalState] = useState(null); // null | { template? }
+  const [generatingId, setGeneratingId] = useState(null);
 
   const isOwn = viewUserId === user?.id;
 
@@ -38,12 +41,14 @@ export default function Personal() {
     setLoading(true);
     const { from, to } = getPeriodRange(period, anchor);
     const params = new URLSearchParams({ from: from.toISOString(), to: to.toISOString(), userId: viewUserId });
-    const [s, g] = await Promise.all([
+    const [s, g, r] = await Promise.all([
       api.get(`/personal?${params.toString()}`),
       api.get(`/personal/groups?userId=${viewUserId}`),
+      api.get(`/personal-recurring?userId=${viewUserId}`),
     ]);
     setSummary(s);
     setGroups(g.groups);
+    setRecurringTemplates(r.templates);
     setLoading(false);
   }
 
@@ -76,6 +81,43 @@ export default function Personal() {
     await api.delete(`/personal/groups/${group.groupId}`);
     showToast(`"${group.label}" supprimé.`);
     load();
+  }
+
+  async function toggleRecurringActive(template) {
+    await api.put(`/personal-recurring/${template.id}`, {
+      label: template.label,
+      amount: template.amount,
+      kind: template.kind,
+      dayOfMonth: template.dayOfMonth,
+      active: !template.active,
+    });
+    load();
+  }
+
+  async function removeRecurring(template) {
+    const ok = await confirmAction({
+      title: "Supprimer cet abonnement récurrent",
+      message: `Supprimer définitivement "${template.label}" ? Les lignes déjà générées ne seront pas supprimées.`,
+      confirmLabel: "Supprimer",
+      danger: true,
+    });
+    if (!ok) return;
+    await api.delete(`/personal-recurring/${template.id}`);
+    showToast(`"${template.label}" supprimé.`);
+    load();
+  }
+
+  async function generateRecurringNow(template) {
+    setGeneratingId(template.id);
+    try {
+      await api.post(`/personal-recurring/${template.id}/generate-now`);
+      showToast(`"${template.label}" a été générée pour le mois en cours.`);
+      load();
+    } catch (err) {
+      showToast(err.message, "error");
+    } finally {
+      setGeneratingId(null);
+    }
   }
 
   const viewedUser = users.find((u) => u.id === viewUserId);
@@ -164,6 +206,9 @@ export default function Personal() {
             <div className="flex-between" style={{ marginBottom: 18, flexWrap: "wrap", gap: 10 }}>
               <div />
               <div style={{ display: "flex", gap: 8 }}>
+                <button className="btn btn--ghost" onClick={() => setRecurringModalState({})}>
+                  <Icon name="repeat" size={15} /> Abonnement récurrent
+                </button>
                 <button className="btn btn--ghost" onClick={() => setModalState({ kind: "income" })}>
                   <Icon name="plus" size={15} /> Revenu
                 </button>
@@ -198,7 +243,14 @@ export default function Personal() {
                     <tr key={t.id}>
                       <td className="text-muted">{formatDate(t.date)}</td>
                       <td>
-                        <div style={{ fontWeight: 600 }}>{t.label}</div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          <span style={{ fontWeight: 600 }}>{t.label}</span>
+                          {t.recurringTemplateId && (
+                            <span className="pill pill--neutral" title="Abonnement récurrent">
+                              <Icon name="repeat" size={11} />
+                            </span>
+                          )}
+                        </div>
                         {t.note && (
                           <div className="text-muted" style={{ fontSize: 12, marginTop: 3 }}>
                             {t.note}
@@ -227,6 +279,77 @@ export default function Personal() {
               </table>
             )}
           </div>
+
+          {(recurringTemplates.length > 0 || isOwn) && (
+            <div className="card" style={{ marginBottom: 14 }}>
+              <div className="card__header">
+                <h3>Abonnements et revenus récurrents</h3>
+              </div>
+              {recurringTemplates.length === 0 ? (
+                <div className="empty-state">
+                  <Icon name="repeat" size={26} />
+                  <span>Aucun abonnement récurrent. Ajoutez un forfait téléphonique, un salaire...</span>
+                </div>
+              ) : (
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>Libellé</th>
+                      <th>Montant</th>
+                      <th>Échéance</th>
+                      <th>Statut</th>
+                      {isOwn && <th></th>}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {recurringTemplates.map((rt) => (
+                      <tr key={rt.id} style={{ opacity: rt.active ? 1 : 0.5 }}>
+                        <td style={{ fontWeight: 600 }}>{rt.label}</td>
+                        <td style={{ fontWeight: 700, color: rt.kind === "income" ? "var(--color-success)" : "var(--color-text)" }}>
+                          {rt.kind === "income" ? "+" : "-"}
+                          {formatAmount(rt.amount)}
+                        </td>
+                        <td className="text-muted">Le {rt.dayOfMonth} du mois</td>
+                        <td>
+                          {rt.active ? (
+                            <span className="pill pill--paid">Actif</span>
+                          ) : (
+                            <span className="pill pill--neutral">En pause</span>
+                          )}
+                        </td>
+                        {isOwn && (
+                          <td style={{ textAlign: "right" }}>
+                            <div className="row-actions">
+                              <button
+                                className="btn btn--ghost btn--sm"
+                                onClick={() => generateRecurringNow(rt)}
+                                disabled={generatingId === rt.id}
+                              >
+                                Générer ce mois
+                              </button>
+                              <button className="icon-btn" title="Modifier" onClick={() => setRecurringModalState({ template: rt })}>
+                                <Icon name="pencil" size={14} />
+                              </button>
+                              <button
+                                className="icon-btn"
+                                title={rt.active ? "Mettre en pause" : "Réactiver"}
+                                onClick={() => toggleRecurringActive(rt)}
+                              >
+                                <Icon name={rt.active ? "pause" : "play"} size={14} />
+                              </button>
+                              <button className="icon-btn icon-btn--danger" title="Supprimer" onClick={() => removeRecurring(rt)}>
+                                <Icon name="trash" size={14} />
+                              </button>
+                            </div>
+                          </td>
+                        )}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          )}
 
           {groups.length > 0 && (
             <div className="card">
@@ -288,7 +411,130 @@ export default function Personal() {
           }}
         />
       )}
+
+      {recurringModalState && (
+        <PersonalRecurringModal
+          template={recurringModalState.template}
+          onClose={() => setRecurringModalState(null)}
+          onSaved={() => {
+            setRecurringModalState(null);
+            showToast("Abonnement enregistré.");
+            load();
+          }}
+        />
+      )}
     </div>
+  );
+}
+
+function PersonalRecurringModal({ template, onClose, onSaved }) {
+  const isEdit = Boolean(template);
+  const [label, setLabel] = useState(template?.label || "");
+  const [amount, setAmount] = useState(template?.amount ?? "");
+  const [kind, setKind] = useState(template?.kind || "expense");
+  const [dayOfMonth, setDayOfMonth] = useState(template?.dayOfMonth ?? 1);
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const numericAmount = Number(amount) || 0;
+  const canSubmit = label.trim() && numericAmount > 0 && dayOfMonth;
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    if (!canSubmit) return;
+    setSaving(true);
+    setError("");
+    try {
+      const payload = {
+        label: label.trim(),
+        amount: numericAmount,
+        kind,
+        dayOfMonth: Number(dayOfMonth),
+        active: template?.active ?? true,
+      };
+      if (isEdit) {
+        await api.put(`/personal-recurring/${template.id}`, payload);
+      } else {
+        await api.post("/personal-recurring", payload);
+      }
+      onSaved();
+    } catch (err) {
+      setError(err.message || "Impossible d'enregistrer cet abonnement.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Modal
+      title={isEdit ? "Modifier l'abonnement récurrent" : "Nouvel abonnement récurrent"}
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn btn--ghost" type="button" onClick={onClose}>
+            Annuler
+          </button>
+          <button className="btn btn--primary" type="submit" form="personal-recurring-form" disabled={!canSubmit || saving}>
+            {saving ? "Enregistrement..." : "Enregistrer"}
+          </button>
+        </>
+      }
+    >
+      <form id="personal-recurring-form" onSubmit={handleSubmit}>
+        {error && <div className="form-error">{error}</div>}
+
+        <div className="field">
+          <label htmlFor="pr-label">Libellé</label>
+          <input
+            id="pr-label"
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            placeholder="Ex: Forfait téléphonique"
+            required
+          />
+        </div>
+
+        <div className="field">
+          <label htmlFor="pr-kind">Type</label>
+          <Select
+            id="pr-kind"
+            value={kind}
+            onChange={setKind}
+            options={[
+              { value: "expense", label: "Dépense" },
+              { value: "income", label: "Revenu" },
+            ]}
+          />
+        </div>
+
+        <div className="field-row">
+          <div className="field">
+            <label htmlFor="pr-amount">Montant (€)</label>
+            <input
+              id="pr-amount"
+              type="number"
+              min="0.01"
+              step="0.01"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              required
+            />
+          </div>
+          <div className="field">
+            <label htmlFor="pr-day">Jour d'échéance</label>
+            <input
+              id="pr-day"
+              type="number"
+              min="1"
+              max="28"
+              value={dayOfMonth}
+              onChange={(e) => setDayOfMonth(e.target.value)}
+              required
+            />
+          </div>
+        </div>
+      </form>
+    </Modal>
   );
 }
 
