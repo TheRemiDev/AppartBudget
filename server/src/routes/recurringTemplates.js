@@ -3,7 +3,7 @@ import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
 import { requireAuth } from "../middleware/auth.js";
 import { asyncHandler } from "../middleware/errorHandler.js";
-import { generateExpenseFromTemplate } from "../lib/recurringGenerator.js";
+import { generateExpenseFromTemplate, generateForecastForTemplate } from "../lib/recurringGenerator.js";
 
 export const recurringTemplatesRouter = Router();
 
@@ -58,6 +58,7 @@ recurringTemplatesRouter.post(
       },
       include: { category: true },
     });
+    if (template.active) await generateForecastForTemplate(template);
     res.status(201).json({ template: serialize(template) });
   })
 );
@@ -83,6 +84,7 @@ recurringTemplatesRouter.put(
       },
       include: { category: true },
     });
+    if (template.active) await generateForecastForTemplate(template);
     res.json({ template: serialize(template) });
   })
 );

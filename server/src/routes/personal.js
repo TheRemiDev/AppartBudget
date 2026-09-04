@@ -81,22 +81,12 @@ personalRouter.get(
   })
 );
 
-function splitEvenly(total, count) {
-  const totalCents = Math.round(total * 100);
-  const base = Math.floor(totalCents / count);
-  let remainder = totalCents - base * count;
-  const amounts = [];
-  for (let i = 0; i < count; i++) {
-    const extra = remainder > 0 ? 1 : 0;
-    if (remainder > 0) remainder -= 1;
-    amounts.push(Math.round(base + extra) / 100);
-  }
-  return amounts;
-}
-
 const txSchema = z.object({
   label: z.string().min(1).max(120),
   amount: z.number().positive(),
+  // Montant des mensualites suivantes, si different de la 1ere (ex: acompte
+  // majore). Ignore si months <= 1 ou pour un revenu (montant repete tel quel).
+  laterAmount: z.number().positive().optional(),
   kind: z.enum(["income", "expense"]),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).or(z.string().datetime()),
   note: z.string().max(500).optional().nullable(),
@@ -111,12 +101,17 @@ personalRouter.post(
     const startDay = Math.min(start.getDate(), 28);
     const groupId = payload.months > 1 ? crypto.randomUUID() : null;
 
-    // Une depense en plusieurs fois repartit le montant TOTAL saisi sur les
-    // mensualites (achat finance) ; un revenu (ou une depense simple)
-    // repete le MEME montant chaque mois (salaire, abonnement...).
+    // Une depense en plusieurs fois utilise le montant saisi pour la 1ere
+    // mensualite, puis "laterAmount" (ou le meme montant si non precise)
+    // pour les suivantes (achat finance dont le 1er paiement differe) ; un
+    // revenu (ou une depense simple) repete le MEME montant chaque mois
+    // (salaire, abonnement...).
     const amounts =
       payload.kind === "expense" && payload.months > 1
-        ? splitEvenly(payload.amount, payload.months)
+        ? [
+            round2(payload.amount),
+            ...Array(payload.months - 1).fill(round2(payload.laterAmount ?? payload.amount)),
+          ]
         : Array(payload.months).fill(round2(payload.amount));
 
     const rows = await prisma.$transaction(

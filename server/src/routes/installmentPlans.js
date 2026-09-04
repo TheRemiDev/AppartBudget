@@ -16,7 +16,11 @@ const shareConfigSchema = z.object({ userId: z.string(), value: z.number() });
 
 const planSchema = z.object({
   label: z.string().min(1).max(120),
-  totalAmount: z.number().positive(),
+  // La 1ere mensualite peut differer des suivantes (ex: frais de dossier,
+  // acompte majore). Les mensualites 2 a N reprennent toutes le meme
+  // montant "restInstallmentAmount".
+  firstInstallmentAmount: z.number().positive(),
+  restInstallmentAmount: z.number().positive(),
   installmentCount: z.number().int().min(2).max(60),
   startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).or(z.string().datetime()),
   categoryId: z.string(),
@@ -24,21 +28,6 @@ const planSchema = z.object({
   participantIds: z.array(z.string()).min(1),
   splitConfig: z.array(shareConfigSchema).optional().default([]),
 });
-
-// Repartit un montant total en N mensualites qui different d'au plus 1
-// centime entre elles et dont la somme est strictement egale au total.
-function splitIntoInstallments(totalAmount, count) {
-  const totalCents = Math.round(totalAmount * 100);
-  const base = Math.floor(totalCents / count);
-  let remainder = totalCents - base * count;
-  const amounts = [];
-  for (let i = 0; i < count; i++) {
-    const extra = remainder > 0 ? 1 : 0;
-    if (remainder > 0) remainder -= 1;
-    amounts.push(Math.round(base + extra) / 100);
-  }
-  return amounts;
-}
 
 // Convertit n'importe quel type de repartition en pourcentages, calcules
 // sur la mensualite nominale (total / nombre d'echeances). Applique ensuite
@@ -96,22 +85,24 @@ installmentPlansRouter.post(
       }
     }
     if (payload.splitType === "custom") {
-      const nominal = round2(payload.totalAmount / payload.installmentCount);
       const totalCustom = payload.splitConfig.reduce((s, c) => s + c.value, 0);
-      if (Math.abs(totalCustom - nominal) > 0.01) {
+      if (Math.abs(totalCustom - payload.restInstallmentAmount) > 0.01) {
         return res.status(400).json({
-          error: `La somme des montants personnalises doit correspondre a la mensualite (${nominal.toFixed(2)} €).`,
+          error: `La somme des montants personnalises doit correspondre a la mensualite standard (${payload.restInstallmentAmount.toFixed(2)} €).`,
         });
       }
     }
 
-    const installmentAmounts = splitIntoInstallments(payload.totalAmount, payload.installmentCount);
-    const nominalAmount = round2(payload.totalAmount / payload.installmentCount);
+    const installmentAmounts = [
+      round2(payload.firstInstallmentAmount),
+      ...Array(payload.installmentCount - 1).fill(round2(payload.restInstallmentAmount)),
+    ];
+    const totalAmount = round2(installmentAmounts.reduce((s, a) => s + a, 0));
     const percentageConfig = toPercentageConfig(
       payload.splitType,
       payload.participantIds,
       payload.splitConfig,
-      nominalAmount
+      payload.restInstallmentAmount
     );
     const participants = payload.participantIds.map((userId) => ({ userId }));
 
@@ -122,7 +113,7 @@ installmentPlansRouter.post(
       const created = await tx.installmentPlan.create({
         data: {
           label: payload.label,
-          totalAmount: payload.totalAmount,
+          totalAmount,
           installmentCount: payload.installmentCount,
           categoryId: payload.categoryId,
           splitType: payload.splitType,
@@ -181,12 +172,16 @@ function serializePlan(plan) {
     return sum + expensePaid;
   }, 0);
   const paidInstallments = plan.expenses.filter((e) => e.shares.every((s) => s.paid)).length;
+  const firstInstallmentAmount = plan.expenses[0]?.amount ?? 0;
+  const restInstallmentAmount = plan.expenses[1]?.amount ?? firstInstallmentAmount;
 
   return {
     id: plan.id,
     label: plan.label,
     totalAmount: plan.totalAmount,
     installmentCount: plan.installmentCount,
+    firstInstallmentAmount,
+    restInstallmentAmount,
     splitType: plan.splitType,
     splitConfig: JSON.parse(plan.splitConfig),
     category: plan.category,

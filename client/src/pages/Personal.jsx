@@ -296,6 +296,8 @@ function PersonalTransactionModal({ kind, transaction, onClose, onSaved }) {
   const isEdit = Boolean(transaction);
   const [label, setLabel] = useState(transaction?.label || "");
   const [amount, setAmount] = useState(transaction?.amount ?? "");
+  const [laterAmount, setLaterAmount] = useState("");
+  const [sameAsFirst, setSameAsFirst] = useState(true);
   const [date, setDate] = useState(transaction ? toInputDate(transaction.date) : toInputDate(new Date()));
   const [note, setNote] = useState(transaction?.note || "");
   const [months, setMonths] = useState(1);
@@ -304,10 +306,10 @@ function PersonalTransactionModal({ kind, transaction, onClose, onSaved }) {
 
   const numericAmount = Number(amount) || 0;
   const numericMonths = Number(months) || 1;
-  const canSubmit = label.trim() && numericAmount > 0 && date && numericMonths >= 1;
-
-  const monthlyPreview =
-    kind === "expense" && numericMonths > 1 ? numericAmount / numericMonths : numericAmount;
+  const isInstallment = kind === "expense" && numericMonths > 1;
+  const numericLaterAmount = sameAsFirst ? numericAmount : Number(laterAmount) || 0;
+  const canSubmit =
+    label.trim() && numericAmount > 0 && date && numericMonths >= 1 && (!isInstallment || numericLaterAmount > 0);
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -327,6 +329,7 @@ function PersonalTransactionModal({ kind, transaction, onClose, onSaved }) {
         await api.post("/personal", {
           label: label.trim(),
           amount: numericAmount,
+          laterAmount: isInstallment ? numericLaterAmount : undefined,
           kind,
           date,
           note: note.trim() || null,
@@ -378,7 +381,7 @@ function PersonalTransactionModal({ kind, transaction, onClose, onSaved }) {
 
         <div className="field-row">
           <div className="field">
-            <label htmlFor="p-amount">Montant {kind === "expense" && numericMonths > 1 ? "total" : ""} (€)</label>
+            <label htmlFor="p-amount">Montant {isInstallment ? "(1ère mensualité)" : ""} (€)</label>
             <input
               id="p-amount"
               type="number"
@@ -408,14 +411,51 @@ function PersonalTransactionModal({ kind, transaction, onClose, onSaved }) {
               value={months}
               onChange={(e) => setMonths(e.target.value)}
             />
-            {numericMonths > 1 && (
+            {numericMonths > 1 && kind === "income" && (
               <div className="text-muted" style={{ fontSize: 12.5, marginTop: 6 }}>
-                {kind === "expense"
-                  ? `Soit ${formatAmount(monthlyPreview)} par mois pendant ${numericMonths} mois.`
-                  : `${formatAmount(numericAmount)} par mois pendant ${numericMonths} mois.`}
+                {formatAmount(numericAmount)} par mois pendant {numericMonths} mois.
               </div>
             )}
           </div>
+        )}
+
+        {!isEdit && isInstallment && (
+          <>
+            <div className="field">
+              <label style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 400 }}>
+                <input
+                  type="checkbox"
+                  checked={sameAsFirst}
+                  onChange={(e) => setSameAsFirst(e.target.checked)}
+                  style={{ width: "auto" }}
+                />
+                Les mensualités suivantes ont le même montant que la 1ère
+              </label>
+            </div>
+
+            {!sameAsFirst && (
+              <div className="field">
+                <label htmlFor="p-later-amount">Montant des mensualités suivantes (€)</label>
+                <input
+                  id="p-later-amount"
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  value={laterAmount}
+                  onChange={(e) => setLaterAmount(e.target.value)}
+                  required
+                />
+              </div>
+            )}
+
+            {numericAmount > 0 && numericLaterAmount > 0 && (
+              <div className="text-muted" style={{ fontSize: 12.5, marginTop: -10, marginBottom: 16 }}>
+                {sameAsFirst
+                  ? `Soit ${formatAmount(numericAmount)} par mois pendant ${numericMonths} mois.`
+                  : `Soit ${formatAmount(numericAmount)} puis ${formatAmount(numericLaterAmount)} par mois pendant ${numericMonths - 1} mois.`}
+              </div>
+            )}
+          </>
         )}
 
         <div className="field">

@@ -85,7 +85,7 @@ export default function Installments() {
             <tbody>
               {plans.map((p) => {
                 const ratio = p.totalAmount > 0 ? Math.min(100, Math.round((p.paidAmount / p.totalAmount) * 100)) : 0;
-                const monthly = p.totalAmount / p.installmentCount;
+                const sameAmounts = Math.abs(p.firstInstallmentAmount - p.restInstallmentAmount) < 0.005;
                 return (
                   <tr key={p.id}>
                     <td style={{ fontWeight: 600 }}>{p.label}</td>
@@ -96,7 +96,9 @@ export default function Installments() {
                     </td>
                     <td style={{ fontWeight: 700 }}>{formatAmount(p.totalAmount)}</td>
                     <td className="text-muted">
-                      {formatAmount(monthly)} × {p.installmentCount}
+                      {sameAmounts
+                        ? `${formatAmount(p.restInstallmentAmount)} × ${p.installmentCount}`
+                        : `${formatAmount(p.firstInstallmentAmount)} puis ${formatAmount(p.restInstallmentAmount)} × ${p.installmentCount - 1}`}
                     </td>
                     <td style={{ minWidth: 160 }}>
                       <div className="progress-bar">
@@ -139,7 +141,9 @@ export default function Installments() {
 
 function InstallmentPlanModal({ categories, users, onClose, onSaved }) {
   const [label, setLabel] = useState("");
-  const [totalAmount, setTotalAmount] = useState("");
+  const [firstAmount, setFirstAmount] = useState("");
+  const [restAmount, setRestAmount] = useState("");
+  const [sameAsFirst, setSameAsFirst] = useState(true);
   const [installmentCount, setInstallmentCount] = useState(4);
   const [startDate, setStartDate] = useState(toInputDate(new Date()));
   const [categoryId, setCategoryId] = useState(categories[0]?.id || "");
@@ -147,16 +151,18 @@ function InstallmentPlanModal({ categories, users, onClose, onSaved }) {
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
-  const numericTotal = Number(totalAmount) || 0;
+  const numericFirst = Number(firstAmount) || 0;
+  const numericRest = sameAsFirst ? numericFirst : Number(restAmount) || 0;
   const numericCount = Number(installmentCount) || 0;
-  const monthlyAmount = numericCount > 0 ? numericTotal / numericCount : 0;
+  const totalAmount = numericFirst + numericRest * Math.max(numericCount - 1, 0);
   const canSubmit =
     label.trim() &&
-    numericTotal > 0 &&
+    numericFirst > 0 &&
+    numericRest > 0 &&
     numericCount >= 2 &&
     categoryId &&
     startDate &&
-    isSplitValid(split, monthlyAmount);
+    isSplitValid(split, numericRest);
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -166,7 +172,8 @@ function InstallmentPlanModal({ categories, users, onClose, onSaved }) {
     try {
       await api.post("/installment-plans", {
         label: label.trim(),
-        totalAmount: numericTotal,
+        firstInstallmentAmount: numericFirst,
+        restInstallmentAmount: numericRest,
         installmentCount: numericCount,
         startDate,
         categoryId,
@@ -213,14 +220,14 @@ function InstallmentPlanModal({ categories, users, onClose, onSaved }) {
 
         <div className="field-row">
           <div className="field">
-            <label htmlFor="i-total">Montant total (€)</label>
+            <label htmlFor="i-first">1ère mensualité (€)</label>
             <input
-              id="i-total"
+              id="i-first"
               type="number"
               min="0.01"
               step="0.01"
-              value={totalAmount}
-              onChange={(e) => setTotalAmount(e.target.value)}
+              value={firstAmount}
+              onChange={(e) => setFirstAmount(e.target.value)}
               required
             />
           </div>
@@ -238,9 +245,38 @@ function InstallmentPlanModal({ categories, users, onClose, onSaved }) {
           </div>
         </div>
 
-        {numericCount >= 2 && numericTotal > 0 && (
+        <div className="field">
+          <label style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 400 }}>
+            <input
+              type="checkbox"
+              checked={sameAsFirst}
+              onChange={(e) => setSameAsFirst(e.target.checked)}
+              style={{ width: "auto" }}
+            />
+            Les mensualités suivantes ont le même montant que la 1ère
+          </label>
+        </div>
+
+        {!sameAsFirst && (
+          <div className="field">
+            <label htmlFor="i-rest">Montant des mensualités suivantes (€)</label>
+            <input
+              id="i-rest"
+              type="number"
+              min="0.01"
+              step="0.01"
+              value={restAmount}
+              onChange={(e) => setRestAmount(e.target.value)}
+              required
+            />
+          </div>
+        )}
+
+        {numericCount >= 2 && numericFirst > 0 && numericRest > 0 && (
           <div className="text-muted" style={{ fontSize: 12.5, marginTop: -10, marginBottom: 16 }}>
-            Soit {formatAmount(monthlyAmount)} par mois pendant {numericCount} mois.
+            {sameAsFirst
+              ? `Soit ${formatAmount(numericFirst)} par mois pendant ${numericCount} mois (total ${formatAmount(totalAmount)}).`
+              : `Soit ${formatAmount(numericFirst)} puis ${formatAmount(numericRest)} par mois pendant ${numericCount - 1} mois (total ${formatAmount(totalAmount)}).`}
           </div>
         )}
 
@@ -263,7 +299,7 @@ function InstallmentPlanModal({ categories, users, onClose, onSaved }) {
 
         <div className="field">
           <label>Répartition entre le foyer (par mensualité)</label>
-          <SplitEditor users={users} amount={monthlyAmount} value={split} onChange={setSplit} />
+          <SplitEditor users={users} amount={numericRest} value={split} onChange={setSplit} />
         </div>
       </form>
     </Modal>
