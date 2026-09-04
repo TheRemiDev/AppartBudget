@@ -1,0 +1,142 @@
+import { Router } from "express";
+import { z } from "zod";
+import { prisma } from "../lib/prisma.js";
+import { requireAuth } from "../middleware/auth.js";
+import { asyncHandler } from "../middleware/errorHandler.js";
+
+export const dashboardRouter = Router();
+
+dashboardRouter.use(requireAuth);
+
+const rangeSchema = z.object({
+  from: z.string(),
+  to: z.string(),
+});
+
+dashboardRouter.get(
+  "/summary",
+  asyncHandler(async (req, res) => {
+    const { from, to } = rangeSchema.parse(req.query);
+    const where = { date: { gte: new Date(from), lte: new Date(to) } };
+
+    const [expenses, users] = await Promise.all([
+      prisma.expense.findMany({
+        where,
+        include: { category: true, shares: true },
+      }),
+      prisma.user.findMany({ orderBy: { createdAt: "asc" } }),
+    ]);
+
+    const totalAmount = expenses.reduce((s, e) => s + e.amount, 0);
+    const totalFixed = expenses.filter((e) => e.kind === "fixed").reduce((s, e) => s + e.amount, 0);
+    const totalExceptional = expenses
+      .filter((e) => e.kind === "exceptional")
+      .reduce((s, e) => s + e.amount, 0);
+
+    const byCategoryMap = new Map();
+    for (const e of expenses) {
+      const key = e.categoryId;
+      const entry = byCategoryMap.get(key) || {
+        categoryId: key,
+        name: e.category.name,
+        color: e.category.color,
+        icon: e.category.icon,
+        total: 0,
+        count: 0,
+      };
+      entry.total += e.amount;
+      entry.count += 1;
+      byCategoryMap.set(key, entry);
+    }
+
+    const byUser = users.map((u) => {
+      let assigned = 0;
+      let paid = 0;
+      for (const e of expenses) {
+        for (const s of e.shares) {
+          if (s.userId === u.id) {
+            assigned += s.amount;
+            if (s.paid) paid += s.amount;
+          }
+        }
+      }
+      return {
+        userId: u.id,
+        name: u.name,
+        color: u.color,
+        assigned: round2(assigned),
+        paid: round2(paid),
+        pending: round2(assigned - paid),
+      };
+    });
+
+    const myPending = expenses
+      .flatMap((e) =>
+        e.shares
+          .filter((s) => s.userId === req.user.id && !s.paid)
+          .map((s) => ({
+            expenseId: e.id,
+            label: e.label,
+            date: e.date,
+            amount: s.amount,
+            categoryName: e.category.name,
+            categoryIcon: e.category.icon,
+            categoryColor: e.category.color,
+          }))
+      )
+      .sort((a, b) => new Date(a.date) - new Date(b.date));
+
+    res.json({
+      totalAmount: round2(totalAmount),
+      totalFixed: round2(totalFixed),
+      totalExceptional: round2(totalExceptional),
+      expenseCount: expenses.length,
+      byCategory: [...byCategoryMap.values()]
+        .map((c) => ({ ...c, total: round2(c.total) }))
+        .sort((a, b) => b.total - a.total),
+      byUser,
+      myPending,
+    });
+  })
+);
+
+dashboardRouter.get(
+  "/trend",
+  asyncHandler(async (req, res) => {
+    const months = Math.min(Number(req.query.months) || 6, 24);
+    const now = new Date();
+    const start = new Date(now.getFullYear(), now.getMonth() - (months - 1), 1);
+
+    const expenses = await prisma.expense.findMany({
+      where: { date: { gte: start } },
+      select: { date: true, amount: true, kind: true },
+    });
+
+    const buckets = [];
+    for (let i = 0; i < months; i++) {
+      const d = new Date(start.getFullYear(), start.getMonth() + i, 1);
+      buckets.push({
+        key: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`,
+        label: d.toLocaleDateString("fr-FR", { month: "short", year: "2-digit" }),
+        fixed: 0,
+        exceptional: 0,
+      });
+    }
+    const bucketByKey = new Map(buckets.map((b) => [b.key, b]));
+
+    for (const e of expenses) {
+      const d = new Date(e.date);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      const bucket = bucketByKey.get(key);
+      if (!bucket) continue;
+      if (e.kind === "fixed") bucket.fixed = round2(bucket.fixed + e.amount);
+      else bucket.exceptional = round2(bucket.exceptional + e.amount);
+    }
+
+    res.json({ trend: buckets });
+  })
+);
+
+function round2(n) {
+  return Math.round(n * 100) / 100;
+}

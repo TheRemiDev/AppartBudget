@@ -1,0 +1,20 @@
+{
+  "name": "appartbudget",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Application privee de gestion du budget et des depenses du foyer",
+  "workspaces": [
+    "server",
+    "client"
+  ],
+  "scripts": {
+    "dev:server": "npm run dev --workspace server",
+    "dev:client": "npm run dev --workspace client",
+    "build": "npm run build --workspace client",
+    "start": "npm run start --workspace server",
+    "prisma:generate": "npm run prisma:generate --workspace server",
+    "prisma:migrate": "npm run prisma:migrate --workspace server",
+    "seed:categories": "npm run seed:categories --workspace server",
+    "create-user": "npm run create-user --workspace server"
+  }
+}
