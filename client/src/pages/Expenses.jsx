@@ -147,6 +147,11 @@ export default function Expenses() {
                     <span className={`pill pill--kind-${e.kind}`}>
                       {kindLabel(e.kind)}
                     </span>
+                    {e.installmentPlan && (
+                      <span className="pill pill--neutral" style={{ marginLeft: 5 }} title={e.installmentPlan.label}>
+                        <Icon name="creditCard" size={11} /> {e.installmentIndex}/{e.installmentPlan.installmentCount}
+                      </span>
+                    )}
                     {e.notes && (
                       <div
                         className="text-muted"

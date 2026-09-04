@@ -20,6 +20,32 @@ model User {
   shares             ExpenseShare[]
   paymentsMade       SharePayment[]      @relation("SharePaymentPaidBy")
   templatesCreated   RecurringTemplate[] @relation("TemplateCreatedBy")
+  installmentPlansCreated InstallmentPlan[] @relation("InstallmentPlanCreatedBy")
+  personalTransactions PersonalTransaction[]
+}
+
+// Budget personnel d'un membre : revenus et depenses qui lui sont propres,
+// separes du budget du foyer. Visible par les deux membres (transparence),
+// mais seul le proprietaire peut creer/modifier/supprimer ses lignes.
+model PersonalTransaction {
+  id               String   @id @default(cuid())
+  userId           String
+  user             User     @relation(fields: [userId], references: [id])
+  label            String
+  amount           Float
+  kind             String // "income" | "expense"
+  date             DateTime
+  note             String?
+  // Regroupe les mensualites d'un meme achat/revenu recurrent saisi en une
+  // fois (ex: achat personnel en 3 fois, salaire repete sur plusieurs mois).
+  groupId          String?
+  installmentIndex Int?
+  installmentCount Int?
+  createdAt        DateTime @default(now())
+
+  @@index([userId])
+  @@index([date])
+  @@index([groupId])
 }
 
 model Category {
@@ -35,6 +61,7 @@ model Category {
 
   expenses            Expense[]
   recurringTemplates  RecurringTemplate[]
+  installmentPlans    InstallmentPlan[]
 
   @@index([kind])
 }
@@ -52,6 +79,9 @@ model Expense {
   createdBy   User      @relation("ExpenseCreatedBy", fields: [createdById], references: [id])
   templateId  String?
   template    RecurringTemplate? @relation(fields: [templateId], references: [id])
+  installmentPlanId String?
+  installmentPlan   InstallmentPlan? @relation(fields: [installmentPlanId], references: [id], onDelete: Cascade)
+  installmentIndex  Int?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
@@ -60,6 +90,7 @@ model Expense {
   @@index([date])
   @@index([categoryId])
   @@index([templateId])
+  @@index([installmentPlanId])
 }
 
 model ExpenseShare {
@@ -97,6 +128,28 @@ model SharePayment {
 
   @@index([shareId])
   @@index([paidByUserId])
+}
+
+// Un achat regle en plusieurs mensualites fixes (ex: financement Cofidis
+// sur 4 mois). A la difference de RecurringTemplate (charge recurrente
+// indefinie), le nombre d'echeances est connu a l'avance : toutes les
+// depenses correspondantes sont generees immediatement, une par mois.
+model InstallmentPlan {
+  id               String   @id @default(cuid())
+  label            String
+  totalAmount      Float
+  installmentCount Int
+  categoryId       String
+  category         Category @relation(fields: [categoryId], references: [id])
+  splitType        String   @default("equal") // "equal" | "percentage" | "custom"
+  splitConfig      String // JSON string: [{ userId, value }], valeurs par mensualite
+  createdById      String
+  createdBy        User     @relation("InstallmentPlanCreatedBy", fields: [createdById], references: [id])
+  createdAt        DateTime @default(now())
+
+  expenses Expense[]
+
+  @@index([categoryId])
 }
 
 model RecurringTemplate {

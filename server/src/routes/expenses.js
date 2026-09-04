@@ -15,6 +15,7 @@ const userSelect = { select: { id: true, name: true, color: true } };
 const expenseInclude = {
   category: true,
   createdBy: userSelect,
+  installmentPlan: { select: { id: true, label: true, installmentCount: true } },
   shares: {
     include: {
       user: userSelect,

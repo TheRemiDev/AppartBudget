@@ -14,6 +14,8 @@ import { usersRouter } from "./routes/users.js";
 import { categoriesRouter } from "./routes/categories.js";
 import { expensesRouter } from "./routes/expenses.js";
 import { recurringTemplatesRouter } from "./routes/recurringTemplates.js";
+import { installmentPlansRouter } from "./routes/installmentPlans.js";
+import { personalRouter } from "./routes/personal.js";
 import { dashboardRouter } from "./routes/dashboard.js";
 import { notFoundHandler, errorHandler } from "./middleware/errorHandler.js";
 import { generateDueTemplates } from "./lib/recurringGenerator.js";
@@ -53,6 +55,8 @@ app.use("/api/users", usersRouter);
 app.use("/api/categories", categoriesRouter);
 app.use("/api/expenses", expensesRouter);
 app.use("/api/recurring-templates", recurringTemplatesRouter);
+app.use("/api/installment-plans", installmentPlansRouter);
+app.use("/api/personal", personalRouter);
 app.use("/api/dashboard", dashboardRouter);
 app.use("/api", notFoundHandler);
 

@@ -6,6 +6,8 @@ import Dashboard from "./pages/Dashboard.jsx";
 import Expenses from "./pages/Expenses.jsx";
 import Categories from "./pages/Categories.jsx";
 import Recurring from "./pages/Recurring.jsx";
+import Installments from "./pages/Installments.jsx";
+import Personal from "./pages/Personal.jsx";
 import Settings from "./pages/Settings.jsx";
 
 function ProtectedRoute({ children }) {
@@ -37,6 +39,8 @@ export default function App() {
         <Route path="depenses" element={<Expenses />} />
         <Route path="categories" element={<Categories />} />
         <Route path="recurrentes" element={<Recurring />} />
+        <Route path="echelonnes" element={<Installments />} />
+        <Route path="personnel" element={<Personal />} />
         <Route path="parametres" element={<Settings />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
