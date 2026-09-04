@@ -28,6 +28,17 @@
 
 set -euo pipefail
 
+# Prisma telecharge son moteur (query engine) depuis binaries.prisma.sh, un
+# hote distinct du registre npm, a chaque `npm install`/`prisma generate`.
+# Sur de nombreux VPS l'IPv6 vers cet hote est cassee ou tres lente : Node
+# tente alors la resolution IPv6 en premier, attend l'echec du timeout TCP,
+# puis retente en IPv4 -> plusieurs minutes perdues. On force donc la
+# resolution IPv4 pour toutes les commandes npm/node de ce script (sans
+# effet si l'IPv6 fonctionne deja correctement). sudo -u ne propageant pas
+# l'environnement par defaut, cette variable est repassee explicitement a
+# chaque `sudo -u "$REAL_USER" env ...` plus bas.
+export NODE_OPTIONS="--dns-result-order=ipv4first"
+
 # ---------------------------------------------------------------------------
 # Couleurs / helpers d'affichage
 # ---------------------------------------------------------------------------
@@ -182,7 +193,7 @@ PM2_BIN="$(command -v pm2)"
 # ---------------------------------------------------------------------------
 step "Installation des dependances npm (racine, server, client)"
 cd "$APP_DIR"
-sudo -u "$REAL_USER" npm install
+sudo -u "$REAL_USER" env NODE_OPTIONS="$NODE_OPTIONS" npm install
 ok "Dependances installees."
 
 # ---------------------------------------------------------------------------
@@ -211,18 +222,18 @@ PORT="$(grep -E '^PORT=' "$ENV_FILE" | cut -d= -f2)"
 # selon l'etat du lockfile : on le regenere donc explicitement, pour ne
 # jamais faire tourner un client Prisma perime face au schema courant.
 step "Generation du client Prisma"
-sudo -u "$REAL_USER" npm run prisma:generate --workspace server
+sudo -u "$REAL_USER" env NODE_OPTIONS="$NODE_OPTIONS" npm run prisma:generate --workspace server
 ok "Client Prisma a jour avec le schema courant."
 
 # ---------------------------------------------------------------------------
 # 4. Base de donnees (migrations Prisma)
 # ---------------------------------------------------------------------------
 step "Application des migrations de base de donnees"
-sudo -u "$REAL_USER" npm run prisma:migrate --workspace server
+sudo -u "$REAL_USER" env NODE_OPTIONS="$NODE_OPTIONS" npm run prisma:migrate --workspace server
 ok "Base de donnees a jour."
 
 step "Categories de depenses par defaut"
-sudo -u "$REAL_USER" npm run seed:categories
+sudo -u "$REAL_USER" env NODE_OPTIONS="$NODE_OPTIONS" npm run seed:categories
 ok "Categories verifiees/creees."
 
 # ---------------------------------------------------------------------------
@@ -236,11 +247,11 @@ prompt_if_missing U2_EMAIL "Email du 2e compte"
 prompt_if_missing U2_NAME "Nom affiche du 2e compte"
 prompt_if_missing U2_PASSWORD "Mot de passe du 2e compte (8 caracteres min)" secret
 
-sudo -u "$REAL_USER" npm run create-user -- \
+sudo -u "$REAL_USER" env NODE_OPTIONS="$NODE_OPTIONS" npm run create-user -- \
   --email "$U1_EMAIL" --name "$U1_NAME" --password "$U1_PASSWORD" --color "$U1_COLOR" >/dev/null
 ok "Compte pret: $U1_NAME <$U1_EMAIL>"
 
-sudo -u "$REAL_USER" npm run create-user -- \
+sudo -u "$REAL_USER" env NODE_OPTIONS="$NODE_OPTIONS" npm run create-user -- \
   --email "$U2_EMAIL" --name "$U2_NAME" --password "$U2_PASSWORD" --color "$U2_COLOR" >/dev/null
 ok "Compte pret: $U2_NAME <$U2_EMAIL>"
 
@@ -248,7 +259,7 @@ ok "Compte pret: $U2_NAME <$U2_EMAIL>"
 # 6. Build du frontend
 # ---------------------------------------------------------------------------
 step "Build du frontend (production)"
-sudo -u "$REAL_USER" npm run build
+sudo -u "$REAL_USER" env NODE_OPTIONS="$NODE_OPTIONS" npm run build
 ok "Frontend compile dans client/dist."
 
 # ---------------------------------------------------------------------------

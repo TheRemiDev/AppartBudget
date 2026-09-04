@@ -22,6 +22,15 @@
 
 set -euo pipefail
 
+# Prisma telecharge son moteur (query engine) depuis binaries.prisma.sh, un
+# hote distinct du registre npm, a chaque `npm install`/`prisma generate`.
+# Sur de nombreux VPS l'IPv6 vers cet hote est cassee ou tres lente : Node
+# tente alors la resolution IPv6 en premier, attend l'echec du timeout TCP,
+# puis retente en IPv4 -> plusieurs minutes perdues a chaque deploiement.
+# On force donc la resolution IPv4 pour toutes les commandes npm/node de ce
+# script (sans effet si l'IPv6 fonctionne deja correctement).
+export NODE_OPTIONS="--dns-result-order=ipv4first"
+
 C_BLUE="\033[1;34m"; C_GREEN="\033[1;32m"; C_YELLOW="\033[1;33m"; C_RED="\033[1;31m"; C_RESET="\033[0m"
 step()  { echo -e "\n${C_BLUE}==>${C_RESET} $*"; }
 ok()    { echo -e "${C_GREEN}✓${C_RESET} $*"; }
@@ -61,7 +70,9 @@ as_owner() {
   if [[ "$(whoami)" == "$REAL_USER" ]]; then
     "$@"
   else
-    sudo -u "$REAL_USER" env HOME="$REAL_HOME" "$@"
+    # sudo -u ne propage pas l'environnement par defaut : NODE_OPTIONS doit
+    # etre repasse explicitement pour que la resolution IPv4 s'applique.
+    sudo -u "$REAL_USER" env HOME="$REAL_HOME" NODE_OPTIONS="$NODE_OPTIONS" "$@"
   fi
 }
 
