@@ -4,10 +4,24 @@ import { prisma } from "../lib/prisma.js";
 import { requireAuth } from "../middleware/auth.js";
 import { asyncHandler } from "../middleware/errorHandler.js";
 import { computeShares } from "../lib/split.js";
+import { recomputeShareStatus, round2 } from "../lib/shares.js";
 
 export const expensesRouter = Router();
 
 expensesRouter.use(requireAuth);
+
+const userSelect = { select: { id: true, name: true, color: true } };
+
+const expenseInclude = {
+  category: true,
+  createdBy: userSelect,
+  shares: {
+    include: {
+      user: userSelect,
+      payments: { orderBy: { date: "desc" }, include: { paidBy: userSelect } },
+    },
+  },
+};
 
 const shareConfigSchema = z.object({ userId: z.string(), value: z.number() });
 
@@ -33,6 +47,16 @@ async function buildShareData(payload) {
   return shares.map((s) => ({ userId: s.userId, amount: s.amount }));
 }
 
+async function findShareInExpense(expenseId, shareId) {
+  const share = await prisma.expenseShare.findUnique({ where: { id: shareId } });
+  if (!share || share.expenseId !== expenseId) return null;
+  return share;
+}
+
+async function userPublic(id) {
+  return prisma.user.findUnique({ where: { id }, select: { id: true, name: true, color: true } });
+}
+
 expensesRouter.get(
   "/",
   asyncHandler(async (req, res) => {
@@ -48,11 +72,7 @@ expensesRouter.get(
 
     const expenses = await prisma.expense.findMany({
       where,
-      include: {
-        category: true,
-        createdBy: { select: { id: true, name: true, color: true } },
-        shares: { include: { user: { select: { id: true, name: true, color: true } } } },
-      },
+      include: expenseInclude,
       orderBy: { date: "desc" },
     });
     res.json({ expenses });
@@ -64,11 +84,7 @@ expensesRouter.get(
   asyncHandler(async (req, res) => {
     const expense = await prisma.expense.findUnique({
       where: { id: req.params.id },
-      include: {
-        category: true,
-        createdBy: { select: { id: true, name: true, color: true } },
-        shares: { include: { user: { select: { id: true, name: true, color: true } } } },
-      },
+      include: expenseInclude,
     });
     if (!expense) return res.status(404).json({ error: "Depense introuvable." });
     res.json({ expense });
@@ -92,11 +108,7 @@ expensesRouter.post(
         createdById: req.user.id,
         shares: { create: shareData },
       },
-      include: {
-        category: true,
-        createdBy: { select: { id: true, name: true, color: true } },
-        shares: { include: { user: { select: { id: true, name: true, color: true } } } },
-      },
+      include: expenseInclude,
     });
     res.status(201).json({ expense });
   })
@@ -109,7 +121,32 @@ expensesRouter.put(
     const shareData = await buildShareData(payload);
 
     const expense = await prisma.$transaction(async (tx) => {
-      await tx.expenseShare.deleteMany({ where: { expenseId: req.params.id } });
+      const existingShares = await tx.expenseShare.findMany({ where: { expenseId: req.params.id } });
+      const existingByUser = new Map(existingShares.map((s) => [s.userId, s]));
+      const nextUserIds = new Set(shareData.map((s) => s.userId));
+
+      // Retire les participants qui ne font plus partie de la depense
+      // (supprime aussi leurs versements en cascade).
+      for (const old of existingShares) {
+        if (!nextUserIds.has(old.userId)) {
+          await tx.expenseShare.delete({ where: { id: old.id } });
+        }
+      }
+
+      // Met a jour le montant des parts existantes (en conservant leur
+      // historique de versements) et cree les nouvelles.
+      for (const s of shareData) {
+        const existing = existingByUser.get(s.userId);
+        if (existing) {
+          await tx.expenseShare.update({ where: { id: existing.id }, data: { amount: s.amount } });
+          await recomputeShareStatus(tx, existing.id);
+        } else {
+          await tx.expenseShare.create({
+            data: { expenseId: req.params.id, userId: s.userId, amount: s.amount },
+          });
+        }
+      }
+
       return tx.expense.update({
         where: { id: req.params.id },
         data: {
@@ -119,13 +156,8 @@ expensesRouter.put(
           kind: payload.kind,
           notes: payload.notes || null,
           categoryId: payload.categoryId,
-          shares: { create: shareData },
         },
-        include: {
-          category: true,
-          createdBy: { select: { id: true, name: true, color: true } },
-          shares: { include: { user: { select: { id: true, name: true, color: true } } } },
-        },
+        include: expenseInclude,
       });
     });
     res.json({ expense });
@@ -140,22 +172,107 @@ expensesRouter.delete(
   })
 );
 
-// Chaque membre ne peut confirmer/annuler QUE sa propre part.
+// Chaque membre du foyer peut regler N'IMPORTE QUELLE part (la sienne ou
+// celle de l'autre, par exemple pour la couvrir un mois difficile). Le
+// versement garde toujours la trace de qui l'a reellement effectue
+// (paidByUserId), independamment de la personne a qui appartient la part.
+//
+// paid:true solde en un versement le reste a payer ; paid:false annule et
+// supprime tous les versements enregistres sur cette part.
 expensesRouter.patch(
-  "/:id/shares/mine",
+  "/:id/shares/:shareId",
   asyncHandler(async (req, res) => {
     const { paid } = z.object({ paid: z.boolean() }).parse(req.body);
-    const share = await prisma.expenseShare.findUnique({
-      where: { expenseId_userId: { expenseId: req.params.id, userId: req.user.id } },
-    });
+    const share = await findShareInExpense(req.params.id, req.params.shareId);
     if (!share) {
-      return res.status(404).json({ error: "Vous n'etes pas concerne par cette depense." });
+      return res.status(404).json({ error: "Part introuvable pour cette dépense." });
     }
-    const updated = await prisma.expenseShare.update({
-      where: { id: share.id },
-      data: { paid, paidAt: paid ? new Date() : null },
-      include: { user: { select: { id: true, name: true, color: true } } },
+
+    const updated = await prisma.$transaction(async (tx) => {
+      if (paid) {
+        const payments = await tx.sharePayment.findMany({ where: { shareId: share.id } });
+        const remaining = round2(share.amount - payments.reduce((s, p) => s + p.amount, 0));
+        if (remaining > 0.005) {
+          await tx.sharePayment.create({
+            data: { shareId: share.id, amount: remaining, paidByUserId: req.user.id },
+          });
+        }
+      } else {
+        await tx.sharePayment.deleteMany({ where: { shareId: share.id } });
+      }
+      return recomputeShareStatus(tx, share.id);
     });
-    res.json({ share: updated });
+
+    res.json({ share: { ...updated, user: await userPublic(share.userId) } });
+  })
+);
+
+const paymentSchema = z.object({
+  amount: z.number().positive(),
+  note: z.string().max(300).optional().nullable(),
+  date: z
+    .string()
+    .datetime()
+    .or(z.string().regex(/^\d{4}-\d{2}-\d{2}$/))
+    .optional(),
+});
+
+// Enregistre un versement partiel (ou total) sur une part, effectue par
+// l'utilisateur connecte (qui peut donc payer pour l'autre membre du foyer).
+expensesRouter.post(
+  "/:id/shares/:shareId/payments",
+  asyncHandler(async (req, res) => {
+    const { amount, note, date } = paymentSchema.parse(req.body);
+    const share = await findShareInExpense(req.params.id, req.params.shareId);
+    if (!share) {
+      return res.status(404).json({ error: "Part introuvable pour cette dépense." });
+    }
+
+    const updated = await prisma.$transaction(async (tx) => {
+      const existing = await tx.sharePayment.findMany({ where: { shareId: share.id } });
+      const alreadyPaid = existing.reduce((s, p) => s + p.amount, 0);
+      const remaining = round2(share.amount - alreadyPaid);
+      if (round2(amount) - remaining > 0.005) {
+        const err = new Error(
+          `Ce montant dépasse le reste à payer (${remaining.toFixed(2)} €).`
+        );
+        err.status = 400;
+        throw err;
+      }
+      await tx.sharePayment.create({
+        data: {
+          shareId: share.id,
+          amount: round2(amount),
+          note: note || null,
+          paidByUserId: req.user.id,
+          ...(date ? { date: new Date(date) } : {}),
+        },
+      });
+      return recomputeShareStatus(tx, share.id);
+    });
+
+    res.status(201).json({ share: { ...updated, user: await userPublic(share.userId) } });
+  })
+);
+
+// Annule (supprime) un versement precedemment enregistre sur une part.
+expensesRouter.delete(
+  "/:id/shares/:shareId/payments/:paymentId",
+  asyncHandler(async (req, res) => {
+    const share = await findShareInExpense(req.params.id, req.params.shareId);
+    if (!share) {
+      return res.status(404).json({ error: "Part introuvable pour cette dépense." });
+    }
+    const payment = await prisma.sharePayment.findUnique({ where: { id: req.params.paymentId } });
+    if (!payment || payment.shareId !== share.id) {
+      return res.status(404).json({ error: "Versement introuvable." });
+    }
+
+    const updated = await prisma.$transaction(async (tx) => {
+      await tx.sharePayment.delete({ where: { id: payment.id } });
+      return recomputeShareStatus(tx, share.id);
+    });
+
+    res.json({ share: { ...updated, user: await userPublic(share.userId) } });
   })
 );

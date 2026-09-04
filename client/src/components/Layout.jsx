@@ -1,13 +1,14 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext.jsx";
 import Avatar from "./Avatar.jsx";
+import Icon from "./Icon.jsx";
 
 const NAV_ITEMS = [
-  { to: "/", label: "Tableau de bord", end: true, icon: "◆" },
-  { to: "/depenses", label: "Dépenses", icon: "≡" },
-  { to: "/recurrentes", label: "Charges récurrentes", icon: "↻" },
-  { to: "/categories", label: "Catégories", icon: "▤" },
-  { to: "/parametres", label: "Paramètres", icon: "⚙" },
+  { to: "/", label: "Tableau de bord", end: true, icon: "dashboard" },
+  { to: "/depenses", label: "Dépenses", icon: "receipt" },
+  { to: "/recurrentes", label: "Charges récurrentes", icon: "repeat" },
+  { to: "/categories", label: "Catégories", icon: "tag" },
+  { to: "/parametres", label: "Paramètres", icon: "settings" },
 ];
 
 export default function Layout() {
@@ -35,7 +36,7 @@ export default function Layout() {
               end={item.end}
               className={({ isActive }) => `nav-link${isActive ? " active" : ""}`}
             >
-              <span aria-hidden>{item.icon}</span>
+              <Icon name={item.icon} size={17} />
               {item.label}
             </NavLink>
           ))}
@@ -49,7 +50,7 @@ export default function Layout() {
             </div>
           </div>
           <button className="icon-btn" title="Se deconnecter" onClick={handleLogout}>
-            ⏻
+            <Icon name="power" size={16} />
           </button>
         </div>
       </aside>

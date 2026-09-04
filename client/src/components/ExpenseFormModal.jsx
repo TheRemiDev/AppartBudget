@@ -1,8 +1,14 @@
 import { useState } from "react";
 import Modal from "./Modal.jsx";
+import Select from "./Select.jsx";
 import SplitEditor, { buildDefaultSplitValue, isSplitValid } from "./SplitEditor.jsx";
 import { api } from "../api/client.js";
 import { toInputDate } from "../utils/format.js";
+
+const KIND_OPTIONS = [
+  { value: "fixed", label: "Frais fixe" },
+  { value: "exceptional", label: "Frais exceptionnel" },
+];
 
 export default function ExpenseFormModal({ categories, users, expense, onClose, onSaved }) {
   const isEdit = Boolean(expense);
@@ -103,20 +109,17 @@ export default function ExpenseFormModal({ categories, users, expense, onClose, 
         <div className="field-row">
           <div className="field">
             <label htmlFor="kind">Type</label>
-            <select id="kind" value={kind} onChange={(e) => setKind(e.target.value)}>
-              <option value="fixed">Frais fixe</option>
-              <option value="exceptional">Frais exceptionnel</option>
-            </select>
+            <Select id="kind" value={kind} onChange={setKind} options={KIND_OPTIONS} />
           </div>
           <div className="field">
             <label htmlFor="category">Catégorie</label>
-            <select id="category" value={categoryId} onChange={(e) => setCategoryId(e.target.value)} required>
-              {categories.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.icon} {c.name}
-                </option>
-              ))}
-            </select>
+            <Select
+              id="category"
+              value={categoryId}
+              onChange={setCategoryId}
+              options={categories.map((c) => ({ value: c.id, label: c.name, icon: c.icon }))}
+              placeholder="Choisir une catégorie"
+            />
           </div>
         </div>
 

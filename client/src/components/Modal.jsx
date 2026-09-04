@@ -1,3 +1,5 @@
+import Icon from "./Icon.jsx";
+
 export default function Modal({ title, onClose, children, footer, wide }) {
   return (
     <div
@@ -10,7 +12,7 @@ export default function Modal({ title, onClose, children, footer, wide }) {
         <div className="modal__header">
           <h3>{title}</h3>
           <button className="icon-btn" onClick={onClose} type="button" aria-label="Fermer">
-            ✕
+            <Icon name="x" size={16} />
           </button>
         </div>
         <div className="modal__body">{children}</div>
