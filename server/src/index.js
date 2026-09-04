@@ -16,9 +16,11 @@ import { expensesRouter } from "./routes/expenses.js";
 import { recurringTemplatesRouter } from "./routes/recurringTemplates.js";
 import { installmentPlansRouter } from "./routes/installmentPlans.js";
 import { personalRouter } from "./routes/personal.js";
+import { personalRecurringRouter } from "./routes/personalRecurring.js";
 import { dashboardRouter } from "./routes/dashboard.js";
 import { notFoundHandler, errorHandler } from "./middleware/errorHandler.js";
 import { generateDueTemplates } from "./lib/recurringGenerator.js";
+import { generateDuePersonalTemplates } from "./lib/personalRecurringGenerator.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 4310;
@@ -57,6 +59,7 @@ app.use("/api/expenses", expensesRouter);
 app.use("/api/recurring-templates", recurringTemplatesRouter);
 app.use("/api/installment-plans", installmentPlansRouter);
 app.use("/api/personal", personalRouter);
+app.use("/api/personal-recurring", personalRecurringRouter);
 app.use("/api/dashboard", dashboardRouter);
 app.use("/api", notFoundHandler);
 
@@ -84,6 +87,14 @@ async function runRecurringForecast(label) {
     }
   } catch (err) {
     console.error(`[${label}] Erreur lors de la generation des depenses recurrentes:`, err);
+  }
+  try {
+    const created = await generateDuePersonalTemplates(new Date());
+    if (created.length) {
+      console.log(`[${label}] ${created.length} ligne(s) de budget personnel recurrente(s) generee(s).`);
+    }
+  } catch (err) {
+    console.error(`[${label}] Erreur lors de la generation du budget personnel recurrent:`, err);
   }
 }
 
