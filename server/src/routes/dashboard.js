@@ -83,7 +83,7 @@ dashboardRouter.get(
     const myPending = expenses
       .flatMap((e) =>
         e.shares
-          .filter((s) => s.userId === req.user.id && !s.paid)
+          .filter((s) => s.userId === req.user.id && !s.paid && s.amount > 0.005)
           .map((s) => {
             const paidAmount = paidAmountOf(s);
             return {

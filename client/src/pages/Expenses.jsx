@@ -145,6 +145,15 @@ export default function Expenses() {
                     <span className={`pill pill--kind-${e.kind}`}>
                       {e.kind === "fixed" ? "Fixe" : "Exceptionnel"}
                     </span>
+                    {e.notes && (
+                      <div
+                        className="text-muted"
+                        style={{ display: "flex", alignItems: "flex-start", gap: 5, fontSize: 12, marginTop: 6, maxWidth: 260 }}
+                      >
+                        <Icon name="fileText" size={12} style={{ marginTop: 2 }} />
+                        <span>{e.notes}</span>
+                      </div>
+                    )}
                   </td>
                   <td>
                     <span className="pill" style={{ background: `${e.category.color}22`, color: e.category.color }}>
@@ -158,11 +167,16 @@ export default function Expenses() {
                         const paidAmount = s.payments.reduce((sum, p) => sum + p.amount, 0);
                         const partial = !s.paid && paidAmount > 0;
                         const isMine = s.userId === user.id;
+                        const isZero = s.amount <= 0.005;
                         return (
                           <div className="share-row" key={s.id}>
                             <Avatar user={s.user} size="sm" />
                             <span className="share-row__amount">{formatAmount(s.amount)}</span>
-                            {s.paid ? (
+                            {isZero ? (
+                              <span className="share-row__status" style={{ color: "var(--color-text-faint)" }}>
+                                Rien à payer
+                              </span>
+                            ) : s.paid ? (
                               <button
                                 className="share-row__status share-row__status--paid"
                                 style={{ background: "none", border: "none", cursor: isMine ? "pointer" : "default", padding: 0 }}
