@@ -13,6 +13,7 @@ export default function TrendBarChart({ data }) {
           contentStyle={{ borderRadius: 10, border: "1px solid var(--color-border)" }}
         />
         <Bar dataKey="fixed" stackId="a" fill="#4f46e5" radius={[0, 0, 0, 0]} name="Frais fixes" />
+        <Bar dataKey="occasional" stackId="a" fill="#0891b2" radius={[0, 0, 0, 0]} name="Frais ponctuels" />
         <Bar dataKey="exceptional" stackId="a" fill="#f59e0b" radius={[4, 4, 0, 0]} name="Frais exceptionnels" />
       </BarChart>
     </ResponsiveContainer>

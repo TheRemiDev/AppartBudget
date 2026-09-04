@@ -106,13 +106,23 @@ export default function Dashboard() {
             </div>
             <div className="stat-card">
               <div className="stat-card__top">
+                <span className="stat-card__label">Frais ponctuels</span>
+                <span className="icon-badge icon-badge--info">
+                  <Icon name="shoppingBag" size={16} />
+                </span>
+              </div>
+              <div className="stat-card__value">{formatAmount(summary.totalOccasional)}</div>
+              <div className="stat-card__hint">Courses, sorties, loisirs...</div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-card__top">
                 <span className="stat-card__label">Exceptionnelles</span>
                 <span className="icon-badge icon-badge--warning">
                   <Icon name="sparkles" size={16} />
                 </span>
               </div>
               <div className="stat-card__value">{formatAmount(summary.totalExceptional)}</div>
-              <div className="stat-card__hint">Courses, loisirs, imprévus...</div>
+              <div className="stat-card__hint">Réparations, imprévus...</div>
             </div>
             {summary.byUser.map((u) => {
               const ratio = u.assigned > 0 ? Math.min(100, Math.round((u.paid / u.assigned) * 100)) : 100;

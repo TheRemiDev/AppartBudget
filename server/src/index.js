@@ -14,6 +14,8 @@ import { usersRouter } from "./routes/users.js";
 import { categoriesRouter } from "./routes/categories.js";
 import { expensesRouter } from "./routes/expenses.js";
 import { recurringTemplatesRouter } from "./routes/recurringTemplates.js";
+import { installmentPlansRouter } from "./routes/installmentPlans.js";
+import { personalRouter } from "./routes/personal.js";
 import { dashboardRouter } from "./routes/dashboard.js";
 import { notFoundHandler, errorHandler } from "./middleware/errorHandler.js";
 import { generateDueTemplates } from "./lib/recurringGenerator.js";
@@ -53,6 +55,8 @@ app.use("/api/users", usersRouter);
 app.use("/api/categories", categoriesRouter);
 app.use("/api/expenses", expensesRouter);
 app.use("/api/recurring-templates", recurringTemplatesRouter);
+app.use("/api/installment-plans", installmentPlansRouter);
+app.use("/api/personal", personalRouter);
 app.use("/api/dashboard", dashboardRouter);
 app.use("/api", notFoundHandler);
 
@@ -72,15 +76,22 @@ app.listen(PORT, () => {
   console.log(`AppartBudget demarre sur le port ${PORT}`);
 });
 
-// Genere chaque nuit a 03h05 les depenses fixes du mois pour les modeles
-// recurrents dont la date d'echeance est atteinte. Idempotent.
-cron.schedule("5 3 * * *", async () => {
+async function runRecurringForecast(label) {
   try {
     const created = await generateDueTemplates(new Date());
     if (created.length) {
-      console.log(`${created.length} depense(s) recurrente(s) generee(s).`);
+      console.log(`[${label}] ${created.length} depense(s) recurrente(s) generee(s).`);
     }
   } catch (err) {
-    console.error("Erreur lors de la generation des depenses recurrentes:", err);
+    console.error(`[${label}] Erreur lors de la generation des depenses recurrentes:`, err);
   }
-});
+}
+
+// Genere une premiere fois au demarrage (utile juste apres un deploiement,
+// sans attendre le prochain passage du cron), puis chaque nuit a 03h05, les
+// depenses fixes du mois courant et des prochains mois (voir
+// FORECAST_MONTHS_AHEAD) pour tous les modeles recurrents actifs, afin
+// qu'elles apparaissent deja sur le tableau de bord quand on navigue dans
+// le futur. Idempotent (aucun doublon).
+runRecurringForecast("demarrage");
+cron.schedule("5 3 * * *", () => runRecurringForecast("cron"));

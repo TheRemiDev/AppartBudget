@@ -1,8 +1,11 @@
+import { useState } from "react";
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import { formatAmount } from "../utils/format.js";
 import Icon from "./Icon.jsx";
 
 export default function CategoryPieChart({ data }) {
+  const [hovering, setHovering] = useState(false);
+
   if (!data.length) {
     return (
       <div className="empty-state">
@@ -27,6 +30,8 @@ export default function CategoryPieChart({ data }) {
               outerRadius="100%"
               paddingAngle={data.length > 1 ? 2.5 : 0}
               stroke="none"
+              onMouseEnter={() => setHovering(true)}
+              onMouseLeave={() => setHovering(false)}
             >
               {data.map((entry) => (
                 <Cell key={entry.categoryId} fill={entry.color} />
@@ -38,15 +43,21 @@ export default function CategoryPieChart({ data }) {
                 borderRadius: 10,
                 border: "1px solid var(--color-border)",
                 background: "var(--color-surface)",
+                boxShadow: "var(--shadow-lg)",
                 fontSize: 13,
+                padding: "8px 12px",
               }}
+              labelStyle={{ color: "var(--color-text)", fontWeight: 600, marginBottom: 2 }}
+              itemStyle={{ color: "var(--color-text)", padding: 0 }}
             />
           </PieChart>
         </ResponsiveContainer>
-        <div className="category-breakdown__total">
-          <span className="category-breakdown__total-value">{formatAmount(total)}</span>
-          <span className="category-breakdown__total-label">Total</span>
-        </div>
+        {!hovering && (
+          <div className="category-breakdown__total">
+            <span className="category-breakdown__total-value">{formatAmount(total)}</span>
+            <span className="category-breakdown__total-label">Total</span>
+          </div>
+        )}
       </div>
 
       <div className="category-list">

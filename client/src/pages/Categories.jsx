@@ -4,13 +4,9 @@ import Modal from "../components/Modal.jsx";
 import Select from "../components/Select.jsx";
 import Icon from "../components/Icon.jsx";
 import { useConfirm, useToast } from "../context/UIContext.jsx";
+import { KIND_OPTIONS, kindLabel } from "../utils/kind.js";
 
-const EMPTY_FORM = { name: "", icon: "💶", color: "#6366f1", kind: "exceptional", defaultAmount: "" };
-
-const KIND_OPTIONS = [
-  { value: "fixed", label: "Frais fixe" },
-  { value: "exceptional", label: "Frais exceptionnel" },
-];
+const EMPTY_FORM = { name: "", icon: "💶", color: "#6366f1", kind: "occasional", defaultAmount: "" };
 
 export default function Categories() {
   const confirmAction = useConfirm();
@@ -142,7 +138,7 @@ export default function Categories() {
                     </span>
                   </td>
                   <td>
-                    <span className={`pill pill--kind-${c.kind}`}>{c.kind === "fixed" ? "Fixe" : "Exceptionnel"}</span>
+                    <span className={`pill pill--kind-${c.kind}`}>{kindLabel(c.kind)}</span>
                   </td>
                   <td className="text-muted">{c.defaultAmount ? `${c.defaultAmount.toFixed(2)} €` : "—"}</td>
                   <td>

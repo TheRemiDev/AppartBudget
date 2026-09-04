@@ -15,6 +15,7 @@ const userSelect = { select: { id: true, name: true, color: true } };
 const expenseInclude = {
   category: true,
   createdBy: userSelect,
+  installmentPlan: { select: { id: true, label: true, installmentCount: true } },
   shares: {
     include: {
       user: userSelect,
@@ -29,7 +30,7 @@ const expenseSchema = z.object({
   label: z.string().min(1).max(120),
   amount: z.number().positive(),
   date: z.string().datetime().or(z.string().regex(/^\d{4}-\d{2}-\d{2}$/)),
-  kind: z.enum(["fixed", "exceptional"]),
+  kind: z.enum(["fixed", "occasional", "exceptional"]),
   notes: z.string().max(2000).optional().nullable(),
   categoryId: z.string(),
   splitType: z.enum(["equal", "percentage", "custom"]).default("equal"),
@@ -44,7 +45,12 @@ async function buildShareData(payload) {
     payload.participantIds.map((userId) => ({ userId })),
     payload.splitConfig
   );
-  return shares.map((s) => ({ userId: s.userId, amount: s.amount }));
+  // Une part de 0 € n'a rien a regler : elle est consideree soldee des sa
+  // creation, pour ne jamais demander une confirmation inutile.
+  return shares.map((s) => {
+    const settled = s.amount <= 0.005;
+    return { userId: s.userId, amount: s.amount, paid: settled, paidAt: settled ? new Date() : null };
+  });
 }
 
 async function findShareInExpense(expenseId, shareId) {
@@ -142,7 +148,13 @@ expensesRouter.put(
           await recomputeShareStatus(tx, existing.id);
         } else {
           await tx.expenseShare.create({
-            data: { expenseId: req.params.id, userId: s.userId, amount: s.amount },
+            data: {
+              expenseId: req.params.id,
+              userId: s.userId,
+              amount: s.amount,
+              paid: s.paid,
+              paidAt: s.paidAt,
+            },
           });
         }
       }

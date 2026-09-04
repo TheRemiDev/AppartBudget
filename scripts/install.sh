@@ -207,6 +207,13 @@ fi
 # Recharge le port effectif depuis le .env (au cas ou le fichier existait deja avec un autre port)
 PORT="$(grep -E '^PORT=' "$ENV_FILE" | cut -d= -f2)"
 
+# npm install ne relance pas toujours le hook postinstall (prisma generate)
+# selon l'etat du lockfile : on le regenere donc explicitement, pour ne
+# jamais faire tourner un client Prisma perime face au schema courant.
+step "Generation du client Prisma"
+sudo -u "$REAL_USER" npm run prisma:generate --workspace server
+ok "Client Prisma a jour avec le schema courant."
+
 # ---------------------------------------------------------------------------
 # 4. Base de donnees (migrations Prisma)
 # ---------------------------------------------------------------------------

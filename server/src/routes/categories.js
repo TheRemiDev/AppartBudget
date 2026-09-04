@@ -27,7 +27,7 @@ const categorySchema = z.object({
     .string()
     .regex(/^#[0-9a-fA-F]{6}$/)
     .default("#64748b"),
-  kind: z.enum(["fixed", "exceptional"]),
+  kind: z.enum(["fixed", "occasional", "exceptional"]),
   defaultAmount: z.number().positive().optional().nullable(),
 });
 

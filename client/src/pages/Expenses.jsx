@@ -10,10 +10,12 @@ import Avatar from "../components/Avatar.jsx";
 import Icon from "../components/Icon.jsx";
 import { formatAmount, formatDate } from "../utils/format.js";
 import { getPeriodRange } from "../utils/period.js";
+import { kindLabel } from "../utils/kind.js";
 
 const KIND_FILTER_OPTIONS = [
   { value: "all", label: "Tous les types" },
   { value: "fixed", label: "Frais fixes" },
+  { value: "occasional", label: "Frais ponctuels" },
   { value: "exceptional", label: "Frais exceptionnels" },
 ];
 
@@ -143,8 +145,22 @@ export default function Expenses() {
                   <td>
                     <div style={{ fontWeight: 600, marginBottom: 4 }}>{e.label}</div>
                     <span className={`pill pill--kind-${e.kind}`}>
-                      {e.kind === "fixed" ? "Fixe" : "Exceptionnel"}
+                      {kindLabel(e.kind)}
                     </span>
+                    {e.installmentPlan && (
+                      <span className="pill pill--neutral" style={{ marginLeft: 5 }} title={e.installmentPlan.label}>
+                        <Icon name="creditCard" size={11} /> {e.installmentIndex}/{e.installmentPlan.installmentCount}
+                      </span>
+                    )}
+                    {e.notes && (
+                      <div
+                        className="text-muted"
+                        style={{ display: "flex", alignItems: "flex-start", gap: 5, fontSize: 12, marginTop: 6, maxWidth: 260 }}
+                      >
+                        <Icon name="fileText" size={12} style={{ marginTop: 2 }} />
+                        <span>{e.notes}</span>
+                      </div>
+                    )}
                   </td>
                   <td>
                     <span className="pill" style={{ background: `${e.category.color}22`, color: e.category.color }}>
@@ -158,11 +174,16 @@ export default function Expenses() {
                         const paidAmount = s.payments.reduce((sum, p) => sum + p.amount, 0);
                         const partial = !s.paid && paidAmount > 0;
                         const isMine = s.userId === user.id;
+                        const isZero = s.amount <= 0.005;
                         return (
                           <div className="share-row" key={s.id}>
                             <Avatar user={s.user} size="sm" />
                             <span className="share-row__amount">{formatAmount(s.amount)}</span>
-                            {s.paid ? (
+                            {isZero ? (
+                              <span className="share-row__status" style={{ color: "var(--color-text-faint)" }}>
+                                Rien à payer
+                              </span>
+                            ) : s.paid ? (
                               <button
                                 className="share-row__status share-row__status--paid"
                                 style={{ background: "none", border: "none", cursor: isMine ? "pointer" : "default", padding: 0 }}

@@ -10,10 +10,10 @@ const DEFAULTS = [
   { name: "Internet", icon: "📶", color: "#0ea5e9", kind: "fixed" },
   { name: "Assurance habitation", icon: "🛡️", color: "#14b8a6", kind: "fixed" },
   { name: "Eau", icon: "💧", color: "#3b82f6", kind: "fixed" },
-  { name: "Courses", icon: "🛒", color: "#22c55e", kind: "exceptional" },
-  { name: "Sorties & loisirs", icon: "🎉", color: "#ec4899", kind: "exceptional" },
+  { name: "Courses", icon: "🛒", color: "#22c55e", kind: "occasional" },
+  { name: "Sorties & loisirs", icon: "🎉", color: "#ec4899", kind: "occasional" },
   { name: "Entretien & réparations", icon: "🔧", color: "#a855f7", kind: "exceptional" },
-  { name: "Autres", icon: "📦", color: "#64748b", kind: "exceptional" },
+  { name: "Autres", icon: "📦", color: "#64748b", kind: "occasional" },
 ];
 
 async function main() {
