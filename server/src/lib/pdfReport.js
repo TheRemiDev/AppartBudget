@@ -2,14 +2,35 @@ import PDFDocument from "pdfkit";
 import { prisma } from "./prisma.js";
 import { round2 } from "./shares.js";
 
-const KIND_LABELS = { fixed: "Fixe", occasional: "Ponctuel", exceptional: "Exceptionnel" };
-
-const COLOR_TEXT = "#111827";
-const COLOR_MUTED = "#6b7280";
-const COLOR_RULE = "#e5e7eb";
+// Palette identique a celle de l'application (client/src/styles/global.css,
+// mode clair) pour que le PDF ait le meme "look" que le produit.
+const COLOR_TEXT = "#13151a";
+const COLOR_MUTED = "#666b76";
+const COLOR_FAINT = "#9a9fa8";
+const COLOR_BORDER = "#e5e7eb";
+const COLOR_SURFACE_2 = "#f0f1f4";
+const COLOR_SURFACE_3 = "#e7e9ee";
 const COLOR_PRIMARY = "#4f46e5";
+const COLOR_PRIMARY_SOFT = "#eef2ff";
+const COLOR_SUCCESS = "#16a34a";
+const COLOR_SUCCESS_SOFT = "#ecfdf5";
+const COLOR_DANGER = "#dc2626";
+const COLOR_DANGER_SOFT = "#fef2f2";
+const COLOR_WARNING = "#b45309";
+const COLOR_WARNING_SOFT = "#fffbeb";
+const COLOR_INFO = "#0e7490";
+const COLOR_INFO_SOFT = "#ecfeff";
+
+const KIND_LABELS = { fixed: "Fixe", occasional: "Ponctuel", exceptional: "Exceptionnel" };
+const KIND_PILL = {
+  fixed: { bg: COLOR_PRIMARY_SOFT, color: COLOR_PRIMARY },
+  occasional: { bg: COLOR_INFO_SOFT, color: COLOR_INFO },
+  exceptional: { bg: COLOR_WARNING_SOFT, color: COLOR_WARNING },
+};
 
 const MARGIN = 40;
+const CONTENT_WIDTH = 595.28 - 2 * MARGIN; // A4 width - margins
+const HEADER_SPACE = 34; // reserve en haut des pages 2+ pour l'entete courante
 
 // toLocaleString("fr-FR") separe les milliers avec une espace fine
 // insecable (U+202F), absente de l'encodage WinAnsi des polices standard
@@ -27,8 +48,6 @@ function formatDate(d) {
   return new Date(d).toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" });
 }
 
-const CONTENT_WIDTH = 595.28 - 2 * MARGIN; // A4 width - margins (pdfkit default A4)
-
 function ensureSpace(doc, needed) {
   const bottom = doc.page.height - doc.page.margins.bottom;
   if (doc.y + needed > bottom) {
@@ -45,36 +64,85 @@ function fullWidthText(doc, text, options = {}) {
 }
 
 function sectionTitle(doc, text) {
-  ensureSpace(doc, 40);
-  doc.moveDown(0.6);
-  doc.font("Helvetica-Bold").fontSize(13).fillColor(COLOR_TEXT);
+  ensureSpace(doc, 46);
+  doc.moveDown(0.9);
+  doc.font("Helvetica-Bold").fontSize(12.5).fillColor(COLOR_TEXT);
   fullWidthText(doc, text);
+  doc.y += 3;
   doc
-    .moveTo(MARGIN, doc.y + 2)
-    .lineTo(doc.page.width - MARGIN, doc.y + 2)
-    .strokeColor(COLOR_RULE)
-    .lineWidth(1)
+    .moveTo(MARGIN, doc.y)
+    .lineTo(doc.page.width - MARGIN, doc.y)
+    .strokeColor(COLOR_PRIMARY)
+    .lineWidth(1.6)
     .stroke();
-  doc.y += 8;
+  doc.y += 10;
+}
+
+function pillWidth(doc, text, fontSize) {
+  doc.font("Helvetica-Bold").fontSize(fontSize);
+  return doc.widthOfString(text.toUpperCase()) + 14;
+}
+
+function drawPill(doc, text, x, y, { bg, color, fontSize = 7.5 }) {
+  const w = pillWidth(doc, text, fontSize);
+  const h = fontSize + 8;
+  doc.roundedRect(x, y, w, h, h / 2).fill(bg);
+  doc
+    .font("Helvetica-Bold")
+    .fontSize(fontSize)
+    .fillColor(color)
+    .text(text.toUpperCase(), x, y + h / 2 - fontSize / 2 - 1, { width: w, align: "center", lineBreak: false });
+  return w;
+}
+
+function drawAvatar(doc, cx, cy, radius, { initial, color }) {
+  doc.circle(cx, cy, radius).fill(color);
+  doc
+    .font("Helvetica-Bold")
+    .fontSize(radius * 1.05)
+    .fillColor("#ffffff")
+    .text(initial, cx - radius, cy - radius * 0.62, { width: radius * 2, align: "center", lineBreak: false });
+}
+
+// Grille de cartes generique (utilisee pour le resume et les cartes membres) :
+// calcule le nombre de colonnes qui tiennent dans CONTENT_WIDTH a partir
+// d'une largeur minimale, comme un `auto-fit, minmax()` CSS.
+function drawCardGrid(doc, items, cardHeight, minCardWidth, drawItem) {
+  const gap = 10;
+  const columns = Math.max(1, Math.floor((CONTENT_WIDTH + gap) / (minCardWidth + gap)));
+  const cardWidth = (CONTENT_WIDTH - (columns - 1) * gap) / columns;
+
+  for (let i = 0; i < items.length; i += columns) {
+    ensureSpace(doc, cardHeight + gap);
+    const rowItems = items.slice(i, i + columns);
+    const y = doc.y;
+    rowItems.forEach((item, idx) => {
+      const x = MARGIN + idx * (cardWidth + gap);
+      doc.roundedRect(x, y, cardWidth, cardHeight, 8).fillAndStroke(COLOR_SURFACE_2, COLOR_BORDER);
+      drawItem(item, x, y, cardWidth, cardHeight);
+    });
+    doc.y = y + cardHeight + gap;
+  }
 }
 
 function drawTableHeader(doc, columns) {
   // Reserve aussi la place d'au moins une ligne, pour eviter un entete de
   // tableau seul en bas de page sans aucune ligne visible en dessous.
-  ensureSpace(doc, 20 + 26);
+  ensureSpace(doc, 24 + 28);
   const y = doc.y;
-  doc.font("Helvetica-Bold").fontSize(9).fillColor(COLOR_MUTED);
+  const headerHeight = 22;
+  doc.rect(MARGIN, y, CONTENT_WIDTH, headerHeight).fill(COLOR_SURFACE_2);
+  doc.font("Helvetica-Bold").fontSize(8.5).fillColor(COLOR_MUTED);
   for (const col of columns) {
-    doc.text(col.label.toUpperCase(), col.x, y, { width: col.width, align: col.align || "left" });
+    doc.text(col.label.toUpperCase(), col.x, y + 7, { width: col.width, align: col.align || "left" });
   }
-  doc.y = y + 14;
-  doc
-    .moveTo(MARGIN, doc.y)
-    .lineTo(doc.page.width - MARGIN, doc.y)
-    .strokeColor(COLOR_RULE)
-    .lineWidth(1)
-    .stroke();
-  doc.y += 6;
+  doc.y = y + headerHeight;
+}
+
+function rowBackground(doc, y, height, index) {
+  if (index % 2 === 1) {
+    doc.rect(MARGIN, y, CONTENT_WIDTH, height).fill("#f8f9fb");
+  }
 }
 
 // Hauteur de ligne calculee a partir du contenu le plus haut (une cellule
@@ -88,30 +156,32 @@ function rowHeight(doc, columns, row) {
     const h = doc.heightOfString(String(row[col.key] ?? ""), { width: col.width });
     if (h > maxHeight) maxHeight = h;
   }
-  return maxHeight + 6;
+  return maxHeight + 12;
 }
 
-function drawTableRow(doc, columns, row) {
+function drawTableRow(doc, columns, row, index) {
   const height = rowHeight(doc, columns, row);
   const pageBefore = doc.bufferedPageRange().count;
-  ensureSpace(doc, height + 20);
+  ensureSpace(doc, height + 24);
   // Repete l'entete de tableau en haut de la nouvelle page, sinon un
   // rapport avec beaucoup de depenses devient illisible des la 2e page.
   if (doc.bufferedPageRange().count > pageBefore) {
     drawTableHeader(doc, columns);
+    index = 0;
   }
   const y = doc.y;
+  rowBackground(doc, y, height, index);
   doc.font("Helvetica").fontSize(9).fillColor(COLOR_TEXT);
   for (const col of columns) {
-    doc.text(String(row[col.key] ?? ""), col.x, y, { width: col.width, align: col.align || "left" });
+    if (col.pill) {
+      const pill = col.pill(row);
+      if (pill) drawPill(doc, pill.text, col.x, y + (height - 15.5) / 2, pill);
+      continue;
+    }
+    doc.fillColor(col.color ? col.color(row) : COLOR_TEXT);
+    doc.text(String(row[col.key] ?? ""), col.x, y + 6, { width: col.width, align: col.align || "left" });
   }
   doc.y = y + height;
-  doc
-    .moveTo(MARGIN, doc.y - 3)
-    .lineTo(doc.page.width - MARGIN, doc.y - 3)
-    .strokeColor(COLOR_RULE)
-    .lineWidth(0.5)
-    .stroke();
 }
 
 /**
@@ -173,135 +243,268 @@ export async function streamMonthlyReportPdf(res, { from, to, periodLabel }) {
         }
       }
     }
-    return { name: u.name, assigned: round2(assigned), paid: round2(paid), disbursed: round2(disbursed) };
+    return {
+      name: u.name,
+      color: u.color,
+      assigned: round2(assigned),
+      paid: round2(paid),
+      pending: round2(assigned - paid),
+      disbursed: round2(disbursed),
+    };
   });
 
   const doc = new PDFDocument({ margin: MARGIN, size: "A4", bufferPages: true });
+
+  // Entete courante repetee en haut des pages 2+ (la page 1 a son propre
+  // gros en-tete de marque, dessine plus bas). La toute premiere page est
+  // creee par le constructeur de PDFDocument, avant qu'on puisse s'abonner
+  // a cet evenement : il ne se declenche donc naturellement que pour les
+  // pages 2 et suivantes, sans qu'il soit necessaire de s'en proteger.
+  doc.on("pageAdded", () => {
+    doc.font("Helvetica-Bold").fontSize(9).fillColor(COLOR_PRIMARY);
+    doc.text("AppartBudget", MARGIN, MARGIN - 4, { width: 200, lineBreak: false });
+    doc.font("Helvetica").fontSize(9).fillColor(COLOR_MUTED);
+    doc.text(periodLabel, MARGIN, MARGIN - 4, { width: CONTENT_WIDTH, align: "right", lineBreak: false });
+    doc
+      .moveTo(MARGIN, MARGIN + HEADER_SPACE - 12)
+      .lineTo(doc.page.width - MARGIN, MARGIN + HEADER_SPACE - 12)
+      .strokeColor(COLOR_BORDER)
+      .lineWidth(1)
+      .stroke();
+    doc.y = MARGIN + HEADER_SPACE;
+  });
+
   doc.pipe(res);
 
-  // En-tete
-  doc.font("Helvetica-Bold").fontSize(20).fillColor(COLOR_PRIMARY);
-  fullWidthText(doc, "AppartBudget");
-  doc.font("Helvetica").fontSize(14).fillColor(COLOR_TEXT);
-  fullWidthText(doc, `Rapport mensuel — ${periodLabel}`);
-  doc.font("Helvetica").fontSize(9).fillColor(COLOR_MUTED);
-  fullWidthText(doc, `Genere le ${formatDate(new Date())}`);
-  doc.y += 6;
+  // ---- En-tete de marque (page 1) ----
+  // Position de depart capturee UNE FOIS : ne jamais relire doc.y entre deux
+  // appels .text() de ce bloc, pdfkit le mute a chaque appel (source d'un
+  // bug deja rencontre plus haut dans ce fichier).
+  const badgeSize = 30;
+  const headerTop = doc.y;
+  doc.roundedRect(MARGIN, headerTop, badgeSize, badgeSize, 9).fill(COLOR_PRIMARY);
+  doc
+    .font("Helvetica-Bold")
+    .fontSize(13)
+    .fillColor("#ffffff")
+    .text("AB", MARGIN, headerTop + 9, { width: badgeSize, align: "center", lineBreak: false });
+  doc
+    .font("Helvetica-Bold")
+    .fontSize(17)
+    .fillColor(COLOR_TEXT)
+    .text("AppartBudget", MARGIN + badgeSize + 12, headerTop + 3, {
+      width: CONTENT_WIDTH - badgeSize - 12,
+      lineBreak: false,
+    });
+  doc
+    .font("Helvetica")
+    .fontSize(9)
+    .fillColor(COLOR_MUTED)
+    .text(`Généré le ${formatDate(new Date())}`, MARGIN + badgeSize + 12, headerTop + 23, {
+      width: CONTENT_WIDTH - badgeSize - 12,
+      lineBreak: false,
+    });
+  doc.y = headerTop + badgeSize + 14;
 
-  // Resume
-  sectionTitle(doc, "Resume");
-  doc.font("Helvetica").fontSize(11).fillColor(COLOR_TEXT);
-  fullWidthText(doc, `Total des depenses : ${formatAmount(totalAmount)}  (${expenses.length} depense(s))`);
-  doc.font("Helvetica").fontSize(10).fillColor(COLOR_MUTED);
-  fullWidthText(
-    doc,
-    `Frais fixes : ${formatAmount(totalByKind.fixed)}    Frais ponctuels : ${formatAmount(
-      totalByKind.occasional
-    )}    Frais exceptionnels : ${formatAmount(totalByKind.exceptional)}`
-  );
+  doc.font("Helvetica-Bold").fontSize(19).fillColor(COLOR_TEXT);
+  fullWidthText(doc, `Rapport mensuel — ${periodLabel}`);
   doc.y += 4;
-  doc.font("Helvetica").fontSize(10).fillColor(COLOR_TEXT);
-  for (const u of byUser) {
-    fullWidthText(
-      doc,
-      `${u.name} — part assignee : ${formatAmount(u.assigned)}, reglee : ${formatAmount(
-        u.paid
-      )}, versee pour le foyer : ${formatAmount(u.disbursed)}`
-    );
+  doc
+    .moveTo(MARGIN, doc.y)
+    .lineTo(doc.page.width - MARGIN, doc.y)
+    .strokeColor(COLOR_PRIMARY)
+    .lineWidth(2)
+    .stroke();
+  doc.y += 16;
+
+  // ---- Resume (cartes de statistiques, comme le tableau de bord) ----
+  sectionTitle(doc, "Résumé");
+  const statCards = [
+    { label: "Total", value: formatAmount(totalAmount), accent: COLOR_PRIMARY },
+    { label: "Frais fixes", value: formatAmount(totalByKind.fixed), accent: COLOR_PRIMARY },
+    { label: "Frais ponctuels", value: formatAmount(totalByKind.occasional), accent: COLOR_INFO },
+    { label: "Frais exceptionnels", value: formatAmount(totalByKind.exceptional), accent: COLOR_WARNING },
+  ];
+  drawCardGrid(doc, statCards, 56, 118, (item, x, y, w) => {
+    doc.font("Helvetica-Bold").fontSize(8).fillColor(COLOR_MUTED);
+    doc.text(item.label.toUpperCase(), x + 12, y + 11, { width: w - 24, lineBreak: false });
+    doc.font("Helvetica-Bold").fontSize(15).fillColor(COLOR_TEXT);
+    doc.text(item.value, x + 12, y + 27, { width: w - 24, lineBreak: false });
+  });
+  doc.font("Helvetica").fontSize(8.5).fillColor(COLOR_FAINT);
+  fullWidthText(doc, `${expenses.length} dépense(s) sur la période`);
+  doc.y += 10;
+
+  if (byUser.length > 0) {
+    drawCardGrid(doc, byUser, 70, 200, (u, x, y, w) => {
+      const pad = 14;
+      drawAvatar(doc, x + pad + 9, y + pad + 7, 9, { initial: u.name.charAt(0).toUpperCase(), color: u.color });
+      doc.font("Helvetica-Bold").fontSize(10.5).fillColor(COLOR_TEXT);
+      doc.text(u.name, x + pad + 24, y + pad + 1, { width: w - pad * 2 - 24, lineBreak: false });
+
+      const barY = y + pad + 24;
+      const barW = w - pad * 2;
+      const ratio = u.assigned > 0 ? Math.min(1, u.paid / u.assigned) : 0;
+      doc.roundedRect(x + pad, barY, barW, 5, 2.5).fill(COLOR_SURFACE_3);
+      if (ratio > 0) {
+        doc.roundedRect(x + pad, barY, Math.max(6, barW * ratio), 5, 2.5).fill(COLOR_PRIMARY);
+      }
+
+      const statusY = barY + 12;
+      if (u.pending > 0.005) {
+        doc.font("Helvetica-Bold").fontSize(8.5).fillColor(COLOR_DANGER);
+        doc.text(`${formatAmount(u.pending)} restant à confirmer`, x + pad, statusY, { width: barW, lineBreak: false });
+      } else {
+        doc.font("Helvetica-Bold").fontSize(8.5).fillColor(COLOR_SUCCESS);
+        doc.text("Tout est réglé", x + pad, statusY, { width: barW, lineBreak: false });
+      }
+    });
   }
 
-  // Repartition par categorie (barres horizontales)
-  sectionTitle(doc, "Repartition par categorie");
+  // ---- Repartition par categorie (barres horizontales) ----
+  sectionTitle(doc, "Répartition par catégorie");
   const barLabelWidth = 150;
-  const barAmountWidth = 90;
+  const barAmountWidth = 100;
   const barMaxWidth = CONTENT_WIDTH - barLabelWidth - barAmountWidth - 10;
   if (byCategory.length === 0) {
     doc.font("Helvetica").fontSize(10).fillColor(COLOR_MUTED);
-    fullWidthText(doc, "Aucune depense sur cette periode.");
+    fullWidthText(doc, "Aucune dépense sur cette période.");
   }
+  const categoryTotalSum = byCategory.reduce((s, c) => s + c.total, 0) || 1;
   const maxCategoryTotal = byCategory[0]?.total || 1;
   for (const c of byCategory) {
-    ensureSpace(doc, 18);
+    ensureSpace(doc, 20);
     const y = doc.y;
-    doc.font("Helvetica").fontSize(9).fillColor(COLOR_TEXT).text(c.name, MARGIN, y, { width: barLabelWidth - 10 });
-    const barWidth = Math.max(2, (c.total / maxCategoryTotal) * barMaxWidth);
-    doc.rect(MARGIN + barLabelWidth, y + 1, barWidth, 9).fill(c.color);
+    doc.roundedRect(MARGIN, y + 2, 8, 8, 2).fill(c.color);
     doc
       .font("Helvetica")
-      .fontSize(9)
-      .fillColor(COLOR_MUTED)
+      .fontSize(9.5)
+      .fillColor(COLOR_TEXT)
+      .text(c.name, MARGIN + 14, y + 1, { width: barLabelWidth - 14 });
+    const barWidth = Math.max(4, (c.total / maxCategoryTotal) * barMaxWidth);
+    doc.roundedRect(MARGIN + barLabelWidth, y, barMaxWidth, 10, 5).fill(COLOR_SURFACE_3);
+    doc.roundedRect(MARGIN + barLabelWidth, y, barWidth, 10, 5).fill(c.color);
+    const pct = Math.round((c.total / categoryTotalSum) * 100);
+    doc
+      .font("Helvetica-Bold")
+      .fontSize(9.5)
+      .fillColor(COLOR_TEXT)
       .text(formatAmount(c.total), MARGIN + barLabelWidth + barMaxWidth + 10, y, {
         width: barAmountWidth,
         align: "right",
+        lineBreak: false,
       });
-    doc.y = y + 16;
+    doc
+      .font("Helvetica")
+      .fontSize(8)
+      .fillColor(COLOR_FAINT)
+      .text(`${pct} %`, MARGIN + barLabelWidth + barMaxWidth + 10, y + 12, {
+        width: barAmountWidth,
+        align: "right",
+        lineBreak: false,
+      });
+    doc.y = y + 22;
   }
 
-  // Detail des depenses
-  sectionTitle(doc, "Detail des depenses");
+  // ---- Detail des depenses ----
+  sectionTitle(doc, "Détail des dépenses");
   if (expenses.length === 0) {
     doc.font("Helvetica").fontSize(10).fillColor(COLOR_MUTED);
-    fullWidthText(doc, "Aucune depense sur cette periode.");
+    fullWidthText(doc, "Aucune dépense sur cette période.");
   } else {
     const cols = [
-      { key: "date", label: "Date", x: MARGIN, width: 65 },
-      { key: "label", label: "Depense", x: MARGIN + 70, width: 120 },
-      { key: "category", label: "Categorie", x: MARGIN + 195, width: 85 },
-      { key: "kind", label: "Type", x: MARGIN + 285, width: 55 },
-      { key: "amount", label: "Montant", x: MARGIN + 345, width: 65, align: "right" },
-      { key: "split", label: "Repartition", x: MARGIN + 415, width: CONTENT_WIDTH - 415 },
+      { key: "date", label: "Date", x: MARGIN, width: 62, color: () => COLOR_MUTED },
+      { key: "label", label: "Dépense", x: MARGIN + 66, width: 118 },
+      { key: "category", label: "Catégorie", x: MARGIN + 190, width: 80, color: () => COLOR_MUTED },
+      {
+        key: "kind",
+        label: "Type",
+        x: MARGIN + 275,
+        width: 62,
+        pill: (row) => ({ text: KIND_LABELS[row.kindRaw] || row.kindRaw, ...(KIND_PILL[row.kindRaw] || {}) }),
+      },
+      { key: "amount", label: "Montant", x: MARGIN + 342, width: 65, align: "right" },
+      { key: "split", label: "Répartition", x: MARGIN + 412, width: CONTENT_WIDTH - 412 },
     ];
     drawTableHeader(doc, cols);
-    for (const e of expenses) {
+    expenses.forEach((e, i) => {
       const split = e.shares
-        .map((s) => `${s.user.name}: ${formatAmount(s.amount)}${s.paid ? " (regle)" : ""}`)
-        .join("  /  ");
-      drawTableRow(doc, cols, {
-        date: formatDate(e.date),
-        label: e.label,
-        category: e.category.name,
-        kind: KIND_LABELS[e.kind] || e.kind,
-        amount: formatAmount(e.amount),
-        split,
-      });
-    }
+        .map((s) => `${s.user.name} : ${formatAmount(s.amount)}${s.paid ? "  (réglé)" : ""}`)
+        .join("\n");
+      drawTableRow(
+        doc,
+        cols,
+        {
+          date: formatDate(e.date),
+          label: e.label,
+          category: e.category.name,
+          kindRaw: e.kind,
+          amount: formatAmount(e.amount),
+          split,
+        },
+        i
+      );
+    });
   }
 
-  // Historique des versements
+  // ---- Historique des versements ----
   sectionTitle(doc, "Historique des versements");
   if (payments.length === 0) {
     doc.font("Helvetica").fontSize(10).fillColor(COLOR_MUTED);
-    fullWidthText(doc, "Aucun versement enregistre sur cette periode.");
+    fullWidthText(doc, "Aucun versement enregistré sur cette période.");
   } else {
     const cols = [
-      { key: "date", label: "Date", x: MARGIN, width: 65 },
-      { key: "payer", label: "Paye par", x: MARGIN + 70, width: 100 },
-      { key: "for", label: "Pour la part de", x: MARGIN + 175, width: 100 },
-      { key: "expense", label: "Depense", x: MARGIN + 280, width: 120 },
-      { key: "amount", label: "Montant", x: MARGIN + 405, width: CONTENT_WIDTH - 405, align: "right" },
+      { key: "date", label: "Date", x: MARGIN, width: 62, color: () => COLOR_MUTED },
+      { key: "payer", label: "Payé par", x: MARGIN + 66, width: 100 },
+      { key: "for", label: "Pour la part de", x: MARGIN + 170, width: 100 },
+      { key: "expense", label: "Dépense", x: MARGIN + 274, width: 130, color: () => COLOR_MUTED },
+      {
+        key: "amount",
+        label: "Montant",
+        x: MARGIN + 408,
+        width: CONTENT_WIDTH - 408,
+        align: "right",
+        color: () => COLOR_SUCCESS,
+      },
     ];
     drawTableHeader(doc, cols);
-    for (const p of payments) {
-      drawTableRow(doc, cols, {
-        date: formatDate(p.date),
-        payer: p.paidBy.name,
-        for: p.share.userId === p.paidByUserId ? "Lui-meme" : p.share.user.name,
-        expense: p.share.expense.label,
-        amount: formatAmount(p.amount),
-      });
-    }
+    payments.forEach((p, i) => {
+      drawTableRow(
+        doc,
+        cols,
+        {
+          date: formatDate(p.date),
+          payer: p.paidBy.name,
+          for: p.share.userId === p.paidByUserId ? "Lui-même" : p.share.user.name,
+          expense: p.share.expense.label,
+          amount: formatAmount(p.amount),
+        },
+        i
+      );
+    });
   }
 
-  // Pied de page (numeros de page). Reste strictement dans la zone de
-  // marge : au-dela, pdfkit considere que le texte "ne rentre pas" et cree
-  // silencieusement une page supplementaire (vide) pour l'y placer.
+  // ---- Pied de page (numeros de page) ----
+  // Reste strictement dans la zone de marge : au-dela, pdfkit considere
+  // que le texte "ne rentre pas" et cree silencieusement une page
+  // supplementaire (vide) pour l'y placer.
   const range = doc.bufferedPageRange();
   for (let i = 0; i < range.count; i++) {
     doc.switchToPage(range.start + i);
-    doc.font("Helvetica").fontSize(8).fillColor(COLOR_MUTED);
-    doc.text(`Page ${i + 1} / ${range.count}`, MARGIN, doc.page.height - doc.page.margins.bottom - 15, {
+    doc
+      .moveTo(MARGIN, doc.page.height - doc.page.margins.bottom - 20)
+      .lineTo(doc.page.width - MARGIN, doc.page.height - doc.page.margins.bottom - 20)
+      .strokeColor(COLOR_BORDER)
+      .lineWidth(1)
+      .stroke();
+    doc.font("Helvetica").fontSize(8).fillColor(COLOR_FAINT);
+    doc.text("AppartBudget", MARGIN, doc.page.height - doc.page.margins.bottom - 13, {
+      width: 200,
+      lineBreak: false,
+    });
+    doc.text(`Page ${i + 1} / ${range.count}`, MARGIN, doc.page.height - doc.page.margins.bottom - 13, {
       width: CONTENT_WIDTH,
-      align: "center",
+      align: "right",
       lineBreak: false,
     });
   }
