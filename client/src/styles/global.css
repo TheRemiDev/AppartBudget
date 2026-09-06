@@ -246,6 +246,10 @@ svg {
   min-width: 0;
   padding: 30px 38px 60px;
   max-width: 1280px;
+  /* Sur les ecrans larges, le contenu plafonne a 1280px : centre-le dans
+     l'espace restant au lieu de le laisser colle a gauche avec un vide a
+     droite (les marges auto absorbent l'espace libre du flex). */
+  margin: 0 auto;
 }
 
 .topbar {
