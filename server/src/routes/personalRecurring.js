@@ -85,7 +85,7 @@ personalRecurringRouter.post(
     if (!template || template.userId !== req.user.id) {
       return res.status(404).json({ error: "Abonnement introuvable." });
     }
-    const transaction = await generatePersonalTransactionFromTemplate(template, new Date());
+    const transaction = await generatePersonalTransactionFromTemplate(template, new Date(), { force: true });
     res.json({ transaction });
   })
 );

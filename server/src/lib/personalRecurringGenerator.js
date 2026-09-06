@@ -1,4 +1,5 @@
 import { prisma } from "./prisma.js";
+import { yearMonthKey, wasAlreadyGenerated, recordGeneration } from "./recurringLedger.js";
 
 // Meme fenetre de prevision que les charges recurrentes du foyer (voir
 // recurringGenerator.js), pour que les abonnements/revenus personnels
@@ -7,21 +8,33 @@ export const FORECAST_MONTHS_AHEAD = 2;
 
 /**
  * Cree l'occurrence du mois pour un abonnement/revenu recurrent personnel,
- * sauf si elle existe deja. Idempotent.
+ * sauf si elle a deja ete generee. Idempotent. Sans `force`, respecte une
+ * suppression manuelle anterieure de la ligne (voir recurringLedger.js) :
+ * elle ne reapparait pas toute seule au prochain redemarrage/cron.
  */
-export async function generatePersonalTransactionFromTemplate(template, forDate) {
+export async function generatePersonalTransactionFromTemplate(template, forDate, { force = false } = {}) {
+  const yearMonth = yearMonthKey(forDate);
+
+  if (!force && (await wasAlreadyGenerated(template.id, yearMonth))) {
+    return null;
+  }
+
   const monthStart = new Date(forDate.getFullYear(), forDate.getMonth(), 1);
   const monthEnd = new Date(forDate.getFullYear(), forDate.getMonth() + 1, 1);
 
   const existing = await prisma.personalTransaction.findFirst({
     where: { recurringTemplateId: template.id, date: { gte: monthStart, lt: monthEnd } },
   });
-  if (existing) return existing;
+  if (existing) {
+    // Retro-compatibilite : ligne generee avant l'ajout du ledger.
+    await recordGeneration(template.id, "personal", yearMonth);
+    return existing;
+  }
 
   const day = Math.min(template.dayOfMonth, 28);
   const date = new Date(forDate.getFullYear(), forDate.getMonth(), day);
 
-  return prisma.personalTransaction.create({
+  const transaction = await prisma.personalTransaction.create({
     data: {
       userId: template.userId,
       label: template.label,
@@ -31,6 +44,8 @@ export async function generatePersonalTransactionFromTemplate(template, forDate)
       recurringTemplateId: template.id,
     },
   });
+  await recordGeneration(template.id, "personal", yearMonth);
+  return transaction;
 }
 
 /**
@@ -43,7 +58,8 @@ export async function generateDuePersonalTemplates(now = new Date()) {
   for (const template of templates) {
     for (let i = 0; i <= FORECAST_MONTHS_AHEAD; i++) {
       const forDate = new Date(now.getFullYear(), now.getMonth() + i, 1);
-      results.push(await generatePersonalTransactionFromTemplate(template, forDate));
+      const transaction = await generatePersonalTransactionFromTemplate(template, forDate);
+      if (transaction) results.push(transaction);
     }
   }
   return results;
@@ -57,7 +73,8 @@ export async function generateForecastForPersonalTemplate(template, now = new Da
   const results = [];
   for (let i = 0; i <= FORECAST_MONTHS_AHEAD; i++) {
     const forDate = new Date(now.getFullYear(), now.getMonth() + i, 1);
-    results.push(await generatePersonalTransactionFromTemplate(template, forDate));
+    const transaction = await generatePersonalTransactionFromTemplate(template, forDate);
+    if (transaction) results.push(transaction);
   }
   return results;
 }

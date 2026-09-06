@@ -1,5 +1,6 @@
 import { prisma } from "./prisma.js";
 import { computeShares } from "./split.js";
+import { yearMonthKey, wasAlreadyGenerated, recordGeneration } from "./recurringLedger.js";
 
 // Nombre de mois a l'avance a toujours tenir generes, pour qu'une charge
 // recurrente apparaisse deja sur le tableau de bord quand on navigue dans
@@ -8,17 +9,31 @@ import { computeShares } from "./split.js";
 export const FORECAST_MONTHS_AHEAD = 2;
 
 /**
- * Cree l'occurrence du mois pour un modele recurrent, sauf si elle existe deja.
- * Idempotent: peut etre appele plusieurs fois sans creer de doublons.
+ * Cree l'occurrence du mois pour un modele recurrent, sauf si elle a deja
+ * ete generee. Idempotent: peut etre appele plusieurs fois sans creer de
+ * doublons. Sans `force`, respecte une suppression manuelle anterieure de
+ * l'occurrence (voir recurringLedger.js) : la depense ne reapparait pas
+ * toute seule au prochain redemarrage/cron. `force: true` (bouton "Generer
+ * ce mois") l'ignore et (re)genere quoi qu'il arrive.
  */
-export async function generateExpenseFromTemplate(template, forDate) {
+export async function generateExpenseFromTemplate(template, forDate, { force = false } = {}) {
+  const yearMonth = yearMonthKey(forDate);
+
+  if (!force && (await wasAlreadyGenerated(template.id, yearMonth))) {
+    return null;
+  }
+
   const monthStart = new Date(forDate.getFullYear(), forDate.getMonth(), 1);
   const monthEnd = new Date(forDate.getFullYear(), forDate.getMonth() + 1, 1);
 
   const existing = await prisma.expense.findFirst({
     where: { templateId: template.id, date: { gte: monthStart, lt: monthEnd } },
   });
-  if (existing) return existing;
+  if (existing) {
+    // Retro-compatibilite : depense generee avant l'ajout du ledger.
+    await recordGeneration(template.id, "shared", yearMonth);
+    return existing;
+  }
 
   const splitConfig = JSON.parse(template.splitConfig);
   const participants = splitConfig.map((c) => ({ userId: c.userId }));
@@ -39,6 +54,7 @@ export async function generateExpenseFromTemplate(template, forDate) {
       shares: { create: shares },
     },
   });
+  await recordGeneration(template.id, "shared", yearMonth);
   return expense;
 }
 
@@ -55,7 +71,8 @@ export async function generateDueTemplates(now = new Date()) {
   for (const template of templates) {
     for (let i = 0; i <= FORECAST_MONTHS_AHEAD; i++) {
       const forDate = new Date(now.getFullYear(), now.getMonth() + i, 1);
-      results.push(await generateExpenseFromTemplate(template, forDate));
+      const expense = await generateExpenseFromTemplate(template, forDate);
+      if (expense) results.push(expense);
     }
   }
   return results;
@@ -70,7 +87,8 @@ export async function generateForecastForTemplate(template, now = new Date()) {
   const results = [];
   for (let i = 0; i <= FORECAST_MONTHS_AHEAD; i++) {
     const forDate = new Date(now.getFullYear(), now.getMonth() + i, 1);
-    results.push(await generateExpenseFromTemplate(template, forDate));
+    const expense = await generateExpenseFromTemplate(template, forDate);
+    if (expense) results.push(expense);
   }
   return results;
 }

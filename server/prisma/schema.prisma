@@ -198,3 +198,22 @@ model RecurringTemplate {
 
   @@index([categoryId])
 }
+
+// Historique des occurrences deja generees pour un modele recurrent (foyer
+// via RecurringTemplate ou personnel via PersonalRecurringTemplate),
+// independamment de la depense/ligne elle-meme. Sans cette trace, supprimer
+// une depense generee automatiquement ne l'empechait pas de reapparaitre au
+// prochain redemarrage/cron (la seule verification etait "une depense
+// existe-t-elle pour ce mois ?"). templateId reference RecurringTemplate.id
+// ou PersonalRecurringTemplate.id selon templateKind (les cuid sont uniques
+// globalement, pas besoin de cle etrangere stricte entre les deux tables).
+model RecurringGeneration {
+  id           String   @id @default(cuid())
+  templateId   String
+  templateKind String // "shared" | "personal"
+  yearMonth    String // "2026-09"
+  createdAt    DateTime @default(now())
+
+  @@unique([templateId, yearMonth])
+  @@index([templateId])
+}

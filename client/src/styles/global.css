@@ -1125,9 +1125,14 @@ svg {
 
 .category-breakdown__chart {
   position: relative;
-  width: 148px;
-  height: 148px;
   flex-shrink: 0;
+  /* Proportionnel a la largeur de la carte (comme le graphique en barres
+     voisin, qui remplit deja tout son conteneur) au lieu d'un diametre fixe
+     qui restait minuscule dans une carte devenue beaucoup plus large. */
+  width: 38%;
+  min-width: 130px;
+  max-width: 210px;
+  aspect-ratio: 1;
 }
 
 .category-breakdown__total {
