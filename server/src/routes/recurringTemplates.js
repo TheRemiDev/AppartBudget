@@ -104,7 +104,7 @@ recurringTemplatesRouter.post(
   asyncHandler(async (req, res) => {
     const template = await prisma.recurringTemplate.findUnique({ where: { id: req.params.id } });
     if (!template) return res.status(404).json({ error: "Modele introuvable." });
-    const expense = await generateExpenseFromTemplate(template, new Date());
+    const expense = await generateExpenseFromTemplate(template, new Date(), { force: true });
     res.json({ expense });
   })
 );
