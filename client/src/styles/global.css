@@ -244,11 +244,15 @@ svg {
 .main-area {
   flex: 1;
   min-width: 0;
+  width: 100%;
   padding: 30px 38px 60px;
-  max-width: 1280px;
-  /* Sur les ecrans larges, le contenu plafonne a 1280px : centre-le dans
-     l'espace restant au lieu de le laisser colle a gauche avec un vide a
-     droite (les marges auto absorbent l'espace libre du flex). */
+  /* Plafond genereux : sert seulement a eviter des cartes demesurees sur
+     un moniteur tres large (4K...), sans empecher les grilles (card-grid,
+     chart-grid, deja en auto-fit/fractions) d'utiliser l'espace disponible
+     sur les tailles d'ecran courantes (laptop, desktop). Centre le contenu
+     une fois ce plafond atteint (marges auto = espace libre du flex).
+   */
+  max-width: 1800px;
   margin: 0 auto;
 }
 
