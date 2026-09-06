@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api/client.js";
 import { useAuth } from "../context/AuthContext.jsx";
+import { useToast } from "../context/UIContext.jsx";
 import PeriodSelector from "../components/PeriodSelector.jsx";
 import CategoryPieChart from "../components/CategoryPieChart.jsx";
 import TrendBarChart from "../components/TrendBarChart.jsx";
@@ -8,10 +9,11 @@ import Avatar from "../components/Avatar.jsx";
 import Icon from "../components/Icon.jsx";
 import Select from "../components/Select.jsx";
 import { formatAmount, formatDate, formatDateShort } from "../utils/format.js";
-import { getPeriodRange } from "../utils/period.js";
+import { getPeriodRange, formatPeriodLabel } from "../utils/period.js";
 
 export default function Dashboard() {
   const { user } = useAuth();
+  const showToast = useToast();
   const [period, setPeriod] = useState("month");
   const [anchor, setAnchor] = useState(new Date());
   const [summary, setSummary] = useState(null);
@@ -20,6 +22,7 @@ export default function Dashboard() {
   const [confirmingId, setConfirmingId] = useState(null);
   const [payments, setPayments] = useState([]);
   const [payerFilter, setPayerFilter] = useState("all");
+  const [exportingPdf, setExportingPdf] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -67,6 +70,30 @@ export default function Dashboard() {
     }
   }
 
+  async function exportPdf() {
+    setExportingPdf(true);
+    try {
+      const { from, to } = getPeriodRange(period, anchor);
+      const label = formatPeriodLabel(period, anchor);
+      const params = new URLSearchParams({ from: from.toISOString(), to: to.toISOString(), label });
+      const res = await fetch(`/api/dashboard/export-pdf?${params.toString()}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Impossible de générer le PDF.");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `appartbudget-rapport-${label.replace(/\s+/g, "-").toLowerCase()}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      showToast(err.message || "Impossible de générer le PDF.", "error");
+    } finally {
+      setExportingPdf(false);
+    }
+  }
+
   return (
     <div>
       <div className="topbar">
@@ -74,7 +101,12 @@ export default function Dashboard() {
           <h1>Tableau de bord</h1>
           <div className="topbar__subtitle">Vue d'ensemble des dépenses du foyer</div>
         </div>
-        <PeriodSelector period={period} onPeriodChange={setPeriod} anchor={anchor} onAnchorChange={setAnchor} />
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <PeriodSelector period={period} onPeriodChange={setPeriod} anchor={anchor} onAnchorChange={setAnchor} />
+          <button className="btn btn--ghost" onClick={exportPdf} disabled={exportingPdf}>
+            <Icon name="download" size={15} /> {exportingPdf ? "Génération..." : "Exporter en PDF"}
+          </button>
+        </div>
       </div>
 
       {loading || !summary ? (
