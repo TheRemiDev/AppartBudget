@@ -1234,6 +1234,13 @@ svg {
   align-items: stretch;
 }
 
+/* .card + .card (empilement vertical) matche aussi le 2e .card ici, cote a
+   cote dans une grille : ce margin-top parasite decalait la carte vers le
+   bas et la rendait plus courte que sa voisine malgre align-items: stretch. */
+.chart-grid > .card {
+  margin-top: 0;
+}
+
 @media (max-width: 980px) {
   .chart-grid {
     grid-template-columns: 1fr;
