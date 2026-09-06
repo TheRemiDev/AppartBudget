@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { api } from "../api/client.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useConfirm, useToast } from "../context/UIContext.jsx";
@@ -132,6 +133,7 @@ export default function Settings() {
       </div>
 
       <MembersCard />
+      <BackupCard />
     </div>
   );
 }
@@ -412,5 +414,104 @@ function ResetPasswordModal({ member, onClose, onDone }) {
         </div>
       </form>
     </Modal>
+  );
+}
+
+function BackupCard() {
+  const { logout } = useAuth();
+  const navigate = useNavigate();
+  const confirmAction = useConfirm();
+  const showToast = useToast();
+  const fileInputRef = useRef(null);
+  const [exporting, setExporting] = useState(false);
+  const [importing, setImporting] = useState(false);
+
+  async function exportData() {
+    setExporting(true);
+    try {
+      const res = await fetch("/api/backup/export", { credentials: "include" });
+      if (!res.ok) throw new Error("Impossible d'exporter les données.");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `appartbudget-sauvegarde-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      showToast("Export généré.");
+    } catch (err) {
+      showToast(err.message || "Impossible d'exporter les données.", "error");
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  function pickImportFile() {
+    fileInputRef.current?.click();
+  }
+
+  async function onImportFileSelected(e) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+
+    const ok = await confirmAction({
+      title: "Remplacer toutes les données",
+      message:
+        "Ceci va DÉFINITIVEMENT supprimer toutes les données actuelles (dépenses, versements, catégories, comptes...) et les remplacer par celles du fichier importé. Cette action est irréversible. Continuer ?",
+      confirmLabel: "Remplacer tout",
+      danger: true,
+    });
+    if (!ok) return;
+
+    setImporting(true);
+    try {
+      const text = await file.text();
+      const payload = JSON.parse(text);
+      await api.post("/backup/import", payload);
+      showToast("Données importées. Reconnectez-vous avec les comptes restaurés.");
+      await logout();
+      navigate("/login", { replace: true });
+    } catch (err) {
+      showToast(err.message || "Impossible d'importer ce fichier.", "error");
+    } finally {
+      setImporting(false);
+    }
+  }
+
+  return (
+    <div className="card" style={{ marginTop: 14 }}>
+      <div className="card__header">
+        <h3>Sauvegarde et migration</h3>
+      </div>
+      <div className="card__body">
+        <p className="text-muted" style={{ fontSize: 13, marginTop: 0, marginBottom: 16 }}>
+          Exportez toutes les données de l'application (comptes, dépenses, versements, charges
+          récurrentes, achats échelonnés, budget personnel...) dans un fichier, pour les réimporter
+          telles quelles sur une nouvelle installation.
+        </p>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          <button className="btn btn--ghost" onClick={exportData} disabled={exporting}>
+            <Icon name="download" size={15} /> {exporting ? "Export..." : "Exporter toutes les données"}
+          </button>
+          <button className="btn btn--ghost" onClick={pickImportFile} disabled={importing}>
+            <Icon name="upload" size={15} /> {importing ? "Import..." : "Importer des données"}
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="application/json"
+            style={{ display: "none" }}
+            onChange={onImportFileSelected}
+          />
+        </div>
+        <p className="text-muted" style={{ fontSize: 12, marginTop: 12, marginBottom: 0 }}>
+          Attention : importer un fichier remplace intégralement toutes les données actuelles, sans
+          possibilité de retour en arrière.
+        </p>
+      </div>
+    </div>
   );
 }

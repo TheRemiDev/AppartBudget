@@ -150,6 +150,20 @@ const PATHS = {
       <path d="M5.4 5h13.2L21 12v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-6z" />
     </>
   ),
+  download: (
+    <>
+      <path d="M12 3v12" />
+      <path d="M7 10l5 5 5-5" />
+      <path d="M4 21h16" />
+    </>
+  ),
+  upload: (
+    <>
+      <path d="M12 21V9" />
+      <path d="M7 14l5-5 5 5" />
+      <path d="M4 21h16" />
+    </>
+  ),
 };
 
 export default function Icon({ name, size = 18, strokeWidth = 2, className, style }) {

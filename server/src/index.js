@@ -18,6 +18,7 @@ import { installmentPlansRouter } from "./routes/installmentPlans.js";
 import { personalRouter } from "./routes/personal.js";
 import { personalRecurringRouter } from "./routes/personalRecurring.js";
 import { dashboardRouter } from "./routes/dashboard.js";
+import { backupRouter } from "./routes/backup.js";
 import { notFoundHandler, errorHandler } from "./middleware/errorHandler.js";
 import { generateDueTemplates } from "./lib/recurringGenerator.js";
 import { generateDuePersonalTemplates } from "./lib/personalRecurringGenerator.js";
@@ -45,7 +46,9 @@ app.use(
 );
 app.use(compression());
 app.use(morgan(process.env.NODE_ENV === "production" ? "combined" : "dev"));
-app.use(express.json({ limit: "1mb" }));
+// Limite relevee par rapport a une API classique pour laisser passer un
+// import complet de sauvegarde (toutes les depenses/versements de l'appli).
+app.use(express.json({ limit: "20mb" }));
 app.use(cookieParser());
 
 if (process.env.CORS_ORIGIN) {
@@ -61,6 +64,7 @@ app.use("/api/installment-plans", installmentPlansRouter);
 app.use("/api/personal", personalRouter);
 app.use("/api/personal-recurring", personalRecurringRouter);
 app.use("/api/dashboard", dashboardRouter);
+app.use("/api/backup", backupRouter);
 app.use("/api", notFoundHandler);
 
 // Sert le frontend compile (npm run build depuis /client) en production.

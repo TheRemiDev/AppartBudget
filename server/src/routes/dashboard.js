@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
 import { requireAuth } from "../middleware/auth.js";
 import { asyncHandler } from "../middleware/errorHandler.js";
+import { streamMonthlyReportPdf } from "../lib/pdfReport.js";
 
 export const dashboardRouter = Router();
 
@@ -208,6 +209,25 @@ dashboardRouter.get(
     }
 
     res.json({ trend: buckets });
+  })
+);
+
+// Rapport PDF du foyer (depenses, repartition, historique des versements)
+// sur la periode donnee, telechargeable depuis le tableau de bord.
+dashboardRouter.get(
+  "/export-pdf",
+  asyncHandler(async (req, res) => {
+    const { from, to, label } = z
+      .object({ from: z.string(), to: z.string(), label: z.string().optional() })
+      .parse(req.query);
+
+    const periodLabel = label || `${new Date(from).toLocaleDateString("fr-FR")} - ${new Date(to).toLocaleDateString("fr-FR")}`;
+    const filename = `appartbudget-rapport-${new Date(from).toISOString().slice(0, 7)}.pdf`;
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+
+    await streamMonthlyReportPdf(res, { from, to, periodLabel });
   })
 );
 
