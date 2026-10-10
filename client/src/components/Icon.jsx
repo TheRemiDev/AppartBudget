@@ -164,6 +164,12 @@ const PATHS = {
       <path d="M4 21h16" />
     </>
   ),
+  arrowRight: (
+    <>
+      <path d="M5 12h14" />
+      <path d="M13 6l6 6-6 6" />
+    </>
+  ),
 };
 
 export default function Icon({ name, size = 18, strokeWidth = 2, className, style }) {

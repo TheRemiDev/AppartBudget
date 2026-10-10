@@ -90,7 +90,7 @@ export default function SharePaymentModal({ expense, share: initialShare, onClos
 
   return (
     <Modal
-      title={isOwnShare ? `Paiement — ${expense.label}` : `Paiement — ${expense.label} (part de ${share.user.name})`}
+      title={isOwnShare ? `Paiement — ${expense.label}` : `Paiement — ${expense.label} · part de ${share.user.name}`}
       onClose={onClose}
       footer={<button className="btn btn--ghost" onClick={onClose}>Fermer</button>}
     >

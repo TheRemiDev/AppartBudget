@@ -1343,6 +1343,55 @@ svg {
   justify-content: space-between;
 }
 
+/* ---------- Solde entre les membres du foyer ---------- */
+
+.balance-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  margin-bottom: 22px;
+  box-shadow: var(--shadow-sm);
+}
+
+.balance-banner__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 14px 20px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+}
+
+.balance-banner__who {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 13.5px;
+}
+
+.balance-banner__amount {
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--color-danger);
+}
+
+.balance-banner--settled {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 18px;
+  background: var(--color-success-soft);
+  color: var(--color-success);
+  font-size: 13.5px;
+  font-weight: 600;
+  border-radius: var(--radius-md);
+  margin-bottom: 22px;
+}
+
 .chart-grid {
   display: grid;
   grid-template-columns: 1.3fr 1fr;
