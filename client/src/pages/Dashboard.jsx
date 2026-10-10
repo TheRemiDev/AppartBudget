@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api/client.js";
 import { useAuth } from "../context/AuthContext.jsx";
-import { useToast } from "../context/UIContext.jsx";
+import { useConfirm, useToast } from "../context/UIContext.jsx";
 import PeriodSelector from "../components/PeriodSelector.jsx";
 import CategoryPieChart from "../components/CategoryPieChart.jsx";
 import TrendBarChart from "../components/TrendBarChart.jsx";
@@ -14,6 +14,8 @@ import { getPeriodRange, formatPeriodLabel } from "../utils/period.js";
 export default function Dashboard() {
   const { user } = useAuth();
   const showToast = useToast();
+  const confirmAction = useConfirm();
+  const [cancelingPaymentId, setCancelingPaymentId] = useState(null);
   const [period, setPeriod] = useState("month");
   const [anchor, setAnchor] = useState(new Date());
   const [summary, setSummary] = useState(null);
@@ -77,6 +79,30 @@ export default function Dashboard() {
       loadPayments();
     } finally {
       setConfirmingId(null);
+    }
+  }
+
+  async function cancelPayment(p) {
+    const ok = await confirmAction({
+      title: "Annuler ce versement",
+      message: `Annuler le versement de ${formatAmount(p.amount)} enregistré par ${p.paidBy.name} le ${formatDate(p.date)} ? La part correspondante repassera en attente.`,
+      confirmLabel: "Annuler le versement",
+      danger: true,
+    });
+    if (!ok) return;
+    setCancelingPaymentId(p.id);
+    try {
+      await api.delete(`/expenses/${p.expense.id}/shares/${p.shareId}/payments/${p.id}`);
+      showToast("Versement annulé.");
+      const { from, to } = getPeriodRange(period, anchor);
+      const summaryRes = await api.get(
+        `/dashboard/summary?from=${from.toISOString()}&to=${to.toISOString()}`
+      );
+      setSummary(summaryRes);
+      loadBalance();
+      loadPayments();
+    } finally {
+      setCancelingPaymentId(null);
     }
   }
 
@@ -330,6 +356,7 @@ export default function Dashboard() {
                     <th>Dépense</th>
                     <th>Paiement</th>
                     <th>Montant</th>
+                    <th></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -367,6 +394,16 @@ export default function Dashboard() {
                         </div>
                       </td>
                       <td style={{ fontWeight: 700 }}>{formatAmount(p.amount)}</td>
+                      <td style={{ textAlign: "right" }}>
+                        <button
+                          className="icon-btn icon-btn--danger"
+                          title="Annuler ce versement"
+                          onClick={() => cancelPayment(p)}
+                          disabled={cancelingPaymentId === p.id}
+                        >
+                          <Icon name="trash" size={14} />
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>

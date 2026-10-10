@@ -163,6 +163,7 @@ dashboardRouter.get(
       paidBy: p.paidBy,
       forUser: p.share.user,
       isForSelf: p.paidByUserId === p.share.userId,
+      shareId: p.shareId,
       expense: {
         id: p.share.expense.id,
         label: p.share.expense.label,

@@ -186,9 +186,9 @@ export default function Expenses() {
                             ) : s.paid ? (
                               <button
                                 className="share-row__status share-row__status--paid"
-                                style={{ background: "none", border: "none", cursor: isMine ? "pointer" : "default", padding: 0 }}
-                                onClick={() => isMine && openPaymentModal(e, s)}
-                                disabled={!isMine}
+                                style={{ background: "none", border: "none", cursor: "pointer", padding: 0 }}
+                                title="Voir ou modifier les versements de cette part"
+                                onClick={() => openPaymentModal(e, s)}
                               >
                                 <Icon name="checkCircle" size={13} /> Réglé
                               </button>

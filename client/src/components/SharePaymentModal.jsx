@@ -98,19 +98,31 @@ export default function SharePaymentModal({ expense, share: initialShare, onClos
         <div
           style={{
             display: "flex",
-            alignItems: "center",
+            alignItems: "flex-start",
             gap: 8,
             fontSize: 12.5,
+            lineHeight: 1.5,
             color: "var(--color-text-muted)",
             background: "var(--color-primary-soft)",
             borderRadius: 9,
-            padding: "8px 12px",
+            padding: "10px 12px",
             marginBottom: 16,
           }}
         >
           <Avatar user={share.user} size="sm" />
-          Vous réglez ici la part de <strong style={{ color: "var(--color-text)" }}>{share.user.name}</strong>.
-          L'historique gardera la trace que c'est vous qui avez payé.
+          <span>
+            {remaining > 0 ? (
+              <>
+                Vous réglez ici la part de <strong style={{ color: "var(--color-text)" }}>{share.user.name}</strong>.
+                L'historique gardera la trace que c'est vous qui avez payé.
+              </>
+            ) : (
+              <>
+                Ceci est la part de <strong style={{ color: "var(--color-text)" }}>{share.user.name}</strong>.
+                C'est un foyer de confiance : vous pouvez aussi modifier ou annuler ses versements ci-dessous si besoin.
+              </>
+            )}
+          </span>
         </div>
       )}
 
