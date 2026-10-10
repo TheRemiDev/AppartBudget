@@ -11,7 +11,6 @@ const NAV_GROUPS = [
       { to: "/depenses", label: "Dépenses", icon: "receipt" },
       { to: "/recurrentes", label: "Charges récurrentes", icon: "repeat" },
       { to: "/echelonnes", label: "Achats échelonnés", icon: "creditCard" },
-      { to: "/categories", label: "Catégories", icon: "tag" },
     ],
   },
   {
@@ -20,7 +19,11 @@ const NAV_GROUPS = [
   },
 ];
 
-const SETTINGS_ITEM = { to: "/parametres", label: "Paramètres", icon: "settings" };
+// Reglages : ce qu'on configure une fois, separe de l'usage quotidien.
+const SETTINGS_ITEMS = [
+  { to: "/categories", label: "Catégories", icon: "tag" },
+  { to: "/parametres", label: "Paramètres", icon: "settings" },
+];
 
 export default function Layout() {
   const { user, logout } = useAuth();
@@ -58,13 +61,12 @@ export default function Layout() {
           ))}
 
           <div className="sidebar__group sidebar__group--settings">
-            <NavLink
-              to={SETTINGS_ITEM.to}
-              className={({ isActive }) => `nav-link${isActive ? " active" : ""}`}
-            >
-              <Icon name={SETTINGS_ITEM.icon} size={17} />
-              {SETTINGS_ITEM.label}
-            </NavLink>
+            {SETTINGS_ITEMS.map((item) => (
+              <NavLink key={item.to} to={item.to} className={({ isActive }) => `nav-link${isActive ? " active" : ""}`}>
+                <Icon name={item.icon} size={17} />
+                {item.label}
+              </NavLink>
+            ))}
           </div>
         </nav>
 
@@ -75,8 +77,8 @@ export default function Layout() {
               {user?.name}
             </div>
           </div>
-          <button className="icon-btn" title="Se deconnecter" onClick={handleLogout}>
-            <Icon name="power" size={16} />
+          <button className="icon-btn" title="Se déconnecter" aria-label="Se déconnecter" onClick={handleLogout}>
+            <Icon name="logout" size={16} />
           </button>
         </div>
       </aside>

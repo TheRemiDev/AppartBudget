@@ -4,6 +4,7 @@ import { prisma } from "../lib/prisma.js";
 import { requireAuth } from "../middleware/auth.js";
 import { asyncHandler } from "../middleware/errorHandler.js";
 import { streamMonthlyReportPdf } from "../lib/pdfReport.js";
+import { computeBalances } from "../lib/balance.js";
 
 export const dashboardRouter = Router();
 
@@ -62,6 +63,7 @@ dashboardRouter.get(
       let assigned = 0;
       let paid = 0;
       let disbursed = 0;
+      let advancedForOthers = 0;
       for (const e of expenses) {
         for (const s of e.shares) {
           if (s.userId === u.id) {
@@ -77,7 +79,10 @@ dashboardRouter.get(
           for (const p of s.payments) {
             const credited = Math.max(0, Math.min(p.amount, remaining));
             remaining = round2(remaining - credited);
-            if (p.paidByUserId === u.id) disbursed += credited;
+            if (p.paidByUserId === u.id) {
+              disbursed += credited;
+              if (s.userId !== u.id) advancedForOthers += credited;
+            }
           }
         }
       }
@@ -89,30 +94,9 @@ dashboardRouter.get(
         paid: round2(paid),
         pending: round2(assigned - paid),
         disbursed: round2(disbursed),
+        advancedForOthers: round2(advancedForOthers),
       };
     });
-
-    const myPending = expenses
-      .flatMap((e) =>
-        e.shares
-          .filter((s) => s.userId === req.user.id && !s.paid && s.amount > 0.005)
-          .map((s) => {
-            const paidAmount = paidAmountOf(s);
-            return {
-              expenseId: e.id,
-              shareId: s.id,
-              label: e.label,
-              date: e.date,
-              amount: round2(s.amount - paidAmount),
-              totalAmount: s.amount,
-              paidAmount,
-              categoryName: e.category.name,
-              categoryIcon: e.category.icon,
-              categoryColor: e.category.color,
-            };
-          })
-      )
-      .sort((a, b) => new Date(a.date) - new Date(b.date));
 
     res.json({
       totalAmount: round2(totalAmount),
@@ -124,7 +108,50 @@ dashboardRouter.get(
         .map((c) => ({ ...c, total: round2(c.total) }))
         .sort((a, b) => b.total - a.total),
       byUser,
-      myPending,
+    });
+  })
+);
+
+// Parts que l'utilisateur connecte doit encore payer, INDEPENDAMMENT de la
+// periode affichee : tout ce qui est en retard (mois precedents) plus le
+// mois en cours. Avant, une part oubliee le mois dernier disparaissait de
+// la liste des qu'on changeait de mois. Les mois futurs (pre-generes par
+// les charges recurrentes / achats echelonnes) n'y figurent pas encore.
+dashboardRouter.get(
+  "/to-pay",
+  asyncHandler(async (req, res) => {
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+
+    const shares = await prisma.expenseShare.findMany({
+      where: { userId: req.user.id, paid: false, amount: { gt: 0.005 }, expense: { date: { lt: monthEnd } } },
+      include: { payments: { select: { amount: true } }, expense: { include: { category: true } } },
+    });
+
+    const items = shares
+      .map((s) => {
+        const paidAmount = round2(Math.min(s.payments.reduce((sum, p) => sum + p.amount, 0), s.amount));
+        return {
+          expenseId: s.expense.id,
+          shareId: s.id,
+          label: s.expense.label,
+          date: s.expense.date,
+          overdue: new Date(s.expense.date) < monthStart,
+          remaining: round2(s.amount - paidAmount),
+          shareAmount: s.amount,
+          paidAmount,
+          categoryName: s.expense.category.name,
+          categoryIcon: s.expense.category.icon,
+          categoryColor: s.expense.category.color,
+        };
+      })
+      .sort((a, b) => new Date(a.date) - new Date(b.date));
+
+    res.json({
+      items,
+      total: round2(items.reduce((s, i) => s + i.remaining, 0)),
+      overdueCount: items.filter((i) => i.overdue).length,
     });
   })
 );
@@ -182,54 +209,12 @@ dashboardRouter.get(
   })
 );
 
-// Solde reel entre les membres du foyer, calcule sur l'integralite de
-// l'historique (pas seulement la periode affichee) : qui a avance de
-// l'argent pour la part de qui, net. C'est la question a laquelle la
-// liste "mes paiements en attente" (qui ne regarde qu'une depense a la
-// fois, sur le mois courant) ne repond pas directement.
+// Solde reel entre les membres du foyer, sur tout l'historique (pas
+// seulement la periode affichee), remboursements directs deduits.
 dashboardRouter.get(
   "/balance",
   asyncHandler(async (req, res) => {
-    const users = await prisma.user.findMany({ orderBy: { createdAt: "asc" }, select: { id: true, name: true, color: true } });
-    const shares = await prisma.expenseShare.findMany({
-      select: { userId: true, amount: true, payments: { orderBy: { date: "asc" }, select: { amount: true, paidByUserId: true } } },
-    });
-
-    // owed[x][y] = montant que x doit a y (y a avance pour la part de x).
-    const owed = new Map();
-    for (const u of users) owed.set(u.id, new Map());
-
-    for (const s of shares) {
-      let remaining = s.amount;
-      for (const p of s.payments) {
-        const credited = Math.max(0, Math.min(p.amount, remaining));
-        remaining = round2(remaining - credited);
-        if (credited <= 0 || p.paidByUserId === s.userId) continue;
-        const row = owed.get(s.userId);
-        if (!row) continue;
-        row.set(p.paidByUserId, round2((row.get(p.paidByUserId) || 0) + credited));
-      }
-    }
-
-    const balances = [];
-    for (let i = 0; i < users.length; i++) {
-      for (let j = i + 1; j < users.length; j++) {
-        const a = users[i];
-        const b = users[j];
-        const aOwesB = owed.get(a.id)?.get(b.id) || 0;
-        const bOwesA = owed.get(b.id)?.get(a.id) || 0;
-        const net = round2(aOwesB - bOwesA);
-        if (Math.abs(net) > 0.005) {
-          balances.push(
-            net > 0
-              ? { fromUserId: a.id, toUserId: b.id, amount: net }
-              : { fromUserId: b.id, toUserId: a.id, amount: round2(-net) }
-          );
-        }
-      }
-    }
-
-    res.json({ balances, users });
+    res.json(await computeBalances());
   })
 );
 

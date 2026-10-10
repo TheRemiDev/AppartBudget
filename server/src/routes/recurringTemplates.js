@@ -3,7 +3,12 @@ import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
 import { requireAuth } from "../middleware/auth.js";
 import { asyncHandler } from "../middleware/errorHandler.js";
-import { generateExpenseFromTemplate, generateForecastForTemplate } from "../lib/recurringGenerator.js";
+import {
+  generateExpenseFromTemplate,
+  generateForecastForTemplate,
+  removeUpcomingOccurrences,
+  syncUpcomingOccurrences,
+} from "../lib/recurringGenerator.js";
 
 export const recurringTemplatesRouter = Router();
 
@@ -84,27 +89,46 @@ recurringTemplatesRouter.put(
       },
       include: { category: true },
     });
-    if (template.active) await generateForecastForTemplate(template);
-    res.json({ template: serialize(template) });
+    let occurrences;
+    if (template.active) {
+      occurrences = await syncUpcomingOccurrences(template);
+      await generateForecastForTemplate(template);
+    } else {
+      occurrences = await removeUpcomingOccurrences(template);
+    }
+    res.json({ template: serialize(template), occurrences });
   })
 );
 
 recurringTemplatesRouter.delete(
   "/:id",
   asyncHandler(async (req, res) => {
+    const template = await prisma.recurringTemplate.findUnique({ where: { id: req.params.id } });
+    if (!template) return res.json({ ok: true });
+    // Les mois passes restent (historique reel) ; les mois a venir encore
+    // vierges de tout versement disparaissent avec la charge.
+    const occurrences = await removeUpcomingOccurrences(template);
     await prisma.recurringTemplate.delete({ where: { id: req.params.id } });
-    res.json({ ok: true });
+    res.json({ ok: true, occurrences });
   })
 );
 
-// Genere manuellement l'occurrence du mois courant (utile pour tester ou
-// forcer la generation sans attendre le cron nocturne).
+// Recree l'occurrence du mois courant si elle a ete supprimee (la
+// generation automatique respecte volontairement une suppression manuelle,
+// voir recurringLedger.js). Ne cree jamais de doublon.
 recurringTemplatesRouter.post(
   "/:id/generate-now",
   asyncHandler(async (req, res) => {
     const template = await prisma.recurringTemplate.findUnique({ where: { id: req.params.id } });
-    if (!template) return res.status(404).json({ error: "Modele introuvable." });
-    const expense = await generateExpenseFromTemplate(template, new Date(), { force: true });
-    res.json({ expense });
+    if (!template) return res.status(404).json({ error: "Charge récurrente introuvable." });
+    const now = new Date();
+    const alreadyThere = await prisma.expense.count({
+      where: {
+        templateId: template.id,
+        date: { gte: new Date(now.getFullYear(), now.getMonth(), 1), lt: new Date(now.getFullYear(), now.getMonth() + 1, 1) },
+      },
+    });
+    const expense = await generateExpenseFromTemplate(template, now, { force: true });
+    res.json({ expense, created: alreadyThere === 0 });
   })
 );

@@ -19,6 +19,7 @@ import { personalRouter } from "./routes/personal.js";
 import { personalRecurringRouter } from "./routes/personalRecurring.js";
 import { dashboardRouter } from "./routes/dashboard.js";
 import { backupRouter } from "./routes/backup.js";
+import { settlementsRouter } from "./routes/settlements.js";
 import { notFoundHandler, errorHandler } from "./middleware/errorHandler.js";
 import { generateDueTemplates } from "./lib/recurringGenerator.js";
 import { generateDuePersonalTemplates } from "./lib/personalRecurringGenerator.js";
@@ -65,6 +66,7 @@ app.use("/api/personal", personalRouter);
 app.use("/api/personal-recurring", personalRecurringRouter);
 app.use("/api/dashboard", dashboardRouter);
 app.use("/api/backup", backupRouter);
+app.use("/api/settlements", settlementsRouter);
 app.use("/api", notFoundHandler);
 
 // Sert le frontend compile (npm run build depuis /client) en production.

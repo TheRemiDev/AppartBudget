@@ -170,6 +170,73 @@ const PATHS = {
       <path d="M13 6l6 6-6 6" />
     </>
   ),
+  archive: (
+    <>
+      <rect x="3" y="4" width="18" height="4.5" rx="1.2" />
+      <path d="M5 8.5V19a1.5 1.5 0 0 0 1.5 1.5h11A1.5 1.5 0 0 0 19 19V8.5" />
+      <path d="M10 12.5h4" />
+    </>
+  ),
+  unarchive: (
+    <>
+      <rect x="3" y="4" width="18" height="4.5" rx="1.2" />
+      <path d="M5 8.5V19a1.5 1.5 0 0 0 1.5 1.5h11A1.5 1.5 0 0 0 19 19V8.5" />
+      <path d="M12 17.5v-6M9.5 14 12 11.5 14.5 14" />
+    </>
+  ),
+  search: (
+    <>
+      <circle cx="11" cy="11" r="7" />
+      <path d="m20 20-3.5-3.5" />
+    </>
+  ),
+  refresh: (
+    <>
+      <path d="M20 11a8 8 0 1 0-2.3 5.7" />
+      <path d="M20 4v7h-7" />
+    </>
+  ),
+  alert: (
+    <>
+      <path d="M10.3 3.9 2.4 17.6A2 2 0 0 0 4.1 20.6h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" />
+      <path d="M12 9.5v4" />
+      <circle cx="12" cy="17" r=".6" fill="currentColor" stroke="none" />
+    </>
+  ),
+  info: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 11v5.5" />
+      <circle cx="12" cy="7.8" r=".6" fill="currentColor" stroke="none" />
+    </>
+  ),
+  calendar: (
+    <>
+      <rect x="3" y="5" width="18" height="16" rx="2.2" />
+      <path d="M3 10h18M8 3v4M16 3v4" />
+    </>
+  ),
+  swap: (
+    <>
+      <path d="M4 8h14l-3.5-3.5" />
+      <path d="M20 16H6l3.5 3.5" />
+    </>
+  ),
+  dots: (
+    <>
+      <circle cx="5.5" cy="12" r="1.3" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="12" r="1.3" fill="currentColor" stroke="none" />
+      <circle cx="18.5" cy="12" r="1.3" fill="currentColor" stroke="none" />
+    </>
+  ),
+  filter: <path d="M3.5 5h17l-6.5 8v5.5l-4 2V13z" />,
+  logout: (
+    <>
+      <path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3" />
+      <path d="M10 16.5 5.5 12 10 7.5" />
+      <path d="M5.5 12H15" />
+    </>
+  ),
 };
 
 export default function Icon({ name, size = 18, strokeWidth = 2, className, style }) {

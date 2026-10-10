@@ -78,6 +78,70 @@ export async function generateDueTemplates(now = new Date()) {
   return results;
 }
 
+function startOfDay(now) {
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+}
+
+// Occurrences a venir (pas encore echues) d'une charge recurrente, separees
+// entre celles qu'on peut encore modifier/retirer sans risque et celles sur
+// lesquelles quelqu'un a deja verse quelque chose (laissees intactes).
+async function upcomingOccurrences(templateId, now) {
+  const rows = await prisma.expense.findMany({
+    where: { templateId, date: { gte: startOfDay(now) } },
+    include: { shares: { include: { payments: { select: { id: true } } } } },
+  });
+  const untouched = rows.filter((e) => e.shares.every((s) => s.payments.length === 0));
+  return { untouched, locked: rows.length - untouched.length };
+}
+
+/**
+ * Applique la nouvelle version d'une charge recurrente (montant, libelle,
+ * categorie, jour, repartition) aux occurrences deja pre-generees pour les
+ * mois a venir. Sans ca, modifier le loyer ne changeait que les mois au-dela
+ * de la fenetre de prevision, alors que les 2-3 prochains restaient a
+ * l'ancien montant.
+ */
+export async function syncUpcomingOccurrences(template, now = new Date()) {
+  const { untouched, locked } = await upcomingOccurrences(template.id, now);
+  const splitConfig = JSON.parse(template.splitConfig);
+  const participants = splitConfig.map((c) => ({ userId: c.userId }));
+  const shares = computeShares(template.amount, template.splitType, participants, splitConfig);
+
+  for (const e of untouched) {
+    const d = new Date(e.date);
+    await prisma.$transaction([
+      prisma.expenseShare.deleteMany({ where: { expenseId: e.id } }),
+      prisma.expense.update({
+        where: { id: e.id },
+        data: {
+          label: template.label,
+          amount: template.amount,
+          categoryId: template.categoryId,
+          date: new Date(d.getFullYear(), d.getMonth(), Math.min(template.dayOfMonth, 28)),
+          shares: { create: shares },
+        },
+      }),
+    ]);
+  }
+  return { updated: untouched.length, locked };
+}
+
+/**
+ * Retire les occurrences a venir d'une charge mise en pause ou supprimee
+ * (sinon les mois deja pre-generes restaient affiches). Efface aussi leur
+ * trace dans le ledger pour qu'une reactivation les regenere normalement.
+ */
+export async function removeUpcomingOccurrences(template, now = new Date()) {
+  const { untouched, locked } = await upcomingOccurrences(template.id, now);
+  for (const e of untouched) {
+    await prisma.expense.delete({ where: { id: e.id } });
+    await prisma.recurringGeneration.deleteMany({
+      where: { templateId: template.id, yearMonth: yearMonthKey(new Date(e.date)) },
+    });
+  }
+  return { removed: untouched.length, locked };
+}
+
 /**
  * Genere immediatement la fenetre de prevision pour UN SEUL modele : a
  * appeler a la creation ou reactivation d'une charge recurrente, pour ne

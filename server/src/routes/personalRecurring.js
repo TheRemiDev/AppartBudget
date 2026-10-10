@@ -6,6 +6,8 @@ import { asyncHandler } from "../middleware/errorHandler.js";
 import {
   generatePersonalTransactionFromTemplate,
   generateForecastForPersonalTemplate,
+  removeUpcomingPersonalOccurrences,
+  syncUpcomingPersonalOccurrences,
 } from "../lib/personalRecurringGenerator.js";
 
 export const personalRecurringRouter = Router();
@@ -60,8 +62,14 @@ personalRecurringRouter.put(
       where: { id: req.params.id },
       data: payload,
     });
-    if (template.active) await generateForecastForPersonalTemplate(template);
-    res.json({ template });
+    let occurrences;
+    if (template.active) {
+      occurrences = await syncUpcomingPersonalOccurrences(template);
+      await generateForecastForPersonalTemplate(template);
+    } else {
+      occurrences = await removeUpcomingPersonalOccurrences(template);
+    }
+    res.json({ template, occurrences });
   })
 );
 
@@ -72,8 +80,9 @@ personalRecurringRouter.delete(
     if (!existing || existing.userId !== req.user.id) {
       return res.status(404).json({ error: "Abonnement introuvable." });
     }
+    const occurrences = await removeUpcomingPersonalOccurrences(existing);
     await prisma.personalRecurringTemplate.delete({ where: { id: req.params.id } });
-    res.json({ ok: true });
+    res.json({ ok: true, occurrences });
   })
 );
 
@@ -85,7 +94,14 @@ personalRecurringRouter.post(
     if (!template || template.userId !== req.user.id) {
       return res.status(404).json({ error: "Abonnement introuvable." });
     }
-    const transaction = await generatePersonalTransactionFromTemplate(template, new Date(), { force: true });
-    res.json({ transaction });
+    const now = new Date();
+    const alreadyThere = await prisma.personalTransaction.count({
+      where: {
+        recurringTemplateId: template.id,
+        date: { gte: new Date(now.getFullYear(), now.getMonth(), 1), lt: new Date(now.getFullYear(), now.getMonth() + 1, 1) },
+      },
+    });
+    const transaction = await generatePersonalTransactionFromTemplate(template, now, { force: true });
+    res.json({ transaction, created: alreadyThere === 0 });
   })
 );

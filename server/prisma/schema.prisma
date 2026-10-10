@@ -23,6 +23,29 @@ model User {
   installmentPlansCreated InstallmentPlan[] @relation("InstallmentPlanCreatedBy")
   personalTransactions PersonalTransaction[]
   personalRecurringTemplates PersonalRecurringTemplate[]
+  settlementsSent     Settlement[] @relation("SettlementFrom")
+  settlementsReceived Settlement[] @relation("SettlementTo")
+  settlementsCreated  Settlement[] @relation("SettlementCreatedBy")
+}
+
+// Remboursement direct entre deux membres du foyer (virement, especes...),
+// hors de toute depense : vient solder tout ou partie de ce que l'un doit a
+// l'autre apres avoir avance l'argent de sa part (voir /dashboard/balance).
+model Settlement {
+  id          String   @id @default(cuid())
+  fromUserId  String
+  fromUser    User     @relation("SettlementFrom", fields: [fromUserId], references: [id])
+  toUserId    String
+  toUser      User     @relation("SettlementTo", fields: [toUserId], references: [id])
+  amount      Float
+  date        DateTime @default(now())
+  note        String?
+  createdById String
+  createdBy   User     @relation("SettlementCreatedBy", fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+
+  @@index([fromUserId])
+  @@index([toUserId])
 }
 
 // Budget personnel d'un membre : revenus et depenses qui lui sont propres,

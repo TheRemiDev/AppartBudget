@@ -1,11 +1,20 @@
 import { useEffect, useState } from "react";
 import { api } from "../api/client.js";
-import Modal from "../components/Modal.jsx";
-import Select from "../components/Select.jsx";
-import SplitEditor, { buildDefaultSplitValue, isSplitValid } from "../components/SplitEditor.jsx";
+import ExpenseFormModal from "../components/ExpenseFormModal.jsx";
+import { describeSplit } from "../components/SplitEditor.jsx";
 import Icon from "../components/Icon.jsx";
 import { useConfirm, useToast } from "../context/UIContext.jsx";
-import { formatAmount } from "../utils/format.js";
+import { formatAmount, formatDate } from "../utils/format.js";
+import { nextOccurrenceDate } from "../utils/period.js";
+
+function occurrenceNote(occurrences, verb) {
+  if (!occurrences) return "";
+  const parts = [];
+  const count = occurrences.removed ?? occurrences.updated ?? 0;
+  if (count) parts.push(`${count} échéance${count > 1 ? "s" : ""} à venir ${verb}${count > 1 ? "s" : ""}`);
+  if (occurrences.locked) parts.push(`${occurrences.locked} déjà en partie payée${occurrences.locked > 1 ? "s" : ""}, conservée${occurrences.locked > 1 ? "s" : ""}`);
+  return parts.length ? ` (${parts.join(", ")})` : "";
+}
 
 export default function Recurring() {
   const confirmAction = useConfirm();
@@ -14,16 +23,11 @@ export default function Recurring() {
   const [categories, setCategories] = useState([]);
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [modalState, setModalState] = useState(null);
-  const [generatingId, setGeneratingId] = useState(null);
+  const [modalState, setModalState] = useState(null); // null | { template? }
+  const [busyId, setBusyId] = useState(null);
 
   async function load() {
-    setLoading(true);
-    const [t, c, u] = await Promise.all([
-      api.get("/recurring-templates"),
-      api.get("/categories"),
-      api.get("/users"),
-    ]);
+    const [t, c, u] = await Promise.all([api.get("/recurring-templates"), api.get("/categories"), api.get("/users")]);
     setTemplates(t.templates);
     setCategories(c.categories);
     setUsers(u.users);
@@ -35,43 +39,67 @@ export default function Recurring() {
   }, []);
 
   async function toggleActive(template) {
-    await api.put(`/recurring-templates/${template.id}`, {
-      label: template.label,
-      amount: template.amount,
-      categoryId: template.categoryId,
-      dayOfMonth: template.dayOfMonth,
-      splitType: template.splitType,
-      participantIds: template.splitConfig.map((c) => c.userId),
-      splitConfig: template.splitConfig,
-      active: !template.active,
-    });
-    load();
+    if (template.active) {
+      const ok = await confirmAction({
+        title: "Mettre en pause",
+        message: `Mettre « ${template.label} » en pause ? Plus aucune échéance ne sera créée, et celles à venir pas encore payées seront retirées des dépenses. Les mois passés restent intacts. Vous pourrez la réactiver à tout moment.`,
+        confirmLabel: "Mettre en pause",
+      });
+      if (!ok) return;
+    }
+    setBusyId(template.id);
+    try {
+      const res = await api.put(`/recurring-templates/${template.id}`, {
+        label: template.label,
+        amount: template.amount,
+        categoryId: template.categoryId,
+        dayOfMonth: template.dayOfMonth,
+        splitType: template.splitType,
+        participantIds: template.splitConfig.map((c) => c.userId),
+        splitConfig: template.splitConfig,
+        active: !template.active,
+      });
+      showToast(
+        template.active
+          ? `« ${template.label} » en pause${occurrenceNote(res.occurrences, "retirée")}.`
+          : `« ${template.label} » réactivée : les prochains mois sont de nouveau dans les dépenses.`
+      );
+      load();
+    } finally {
+      setBusyId(null);
+    }
   }
 
   async function remove(template) {
     const ok = await confirmAction({
       title: "Supprimer la charge récurrente",
-      message: `Supprimer définitivement "${template.label}" ? Les dépenses déjà générées ne seront pas supprimées.`,
+      message: `Supprimer définitivement « ${template.label} » ? Les échéances passées restent dans les dépenses ; celles à venir pas encore payées sont retirées.`,
       confirmLabel: "Supprimer",
       danger: true,
     });
     if (!ok) return;
-    await api.delete(`/recurring-templates/${template.id}`);
-    showToast(`"${template.label}" supprimée.`);
+    const res = await api.delete(`/recurring-templates/${template.id}`);
+    showToast(`« ${template.label} » supprimée${occurrenceNote(res.occurrences, "retirée")}.`);
     load();
   }
 
-  async function generateNow(template) {
-    setGeneratingId(template.id);
+  async function restoreThisMonth(template) {
+    setBusyId(template.id);
     try {
-      await api.post(`/recurring-templates/${template.id}/generate-now`);
-      showToast(`"${template.label}" a été générée pour le mois en cours.`);
+      const res = await api.post(`/recurring-templates/${template.id}/generate-now`);
+      showToast(
+        res.created
+          ? `L'échéance de ce mois de « ${template.label} » a été recréée.`
+          : `L'échéance de ce mois de « ${template.label} » existe déjà, rien à recréer.`
+      );
     } catch (err) {
       showToast(err.message, "error");
     } finally {
-      setGeneratingId(null);
+      setBusyId(null);
     }
   }
+
+  const activeTotal = templates.filter((t) => t.active).reduce((s, t) => s + t.amount, 0);
 
   return (
     <div>
@@ -79,13 +107,25 @@ export default function Recurring() {
         <div>
           <h1>Charges récurrentes</h1>
           <div className="topbar__subtitle">
-            Loyer, internet, électricité... générées automatiquement chaque mois
+            Ce qui revient chaque mois. Les échéances sont ajoutées toutes seules aux dépenses, 3 mois à l'avance.
           </div>
         </div>
         <button className="btn btn--primary" onClick={() => setModalState({})}>
-          <Icon name="plus" size={15} /> Nouvelle charge récurrente
+          <Icon name="plus" size={15} /> Nouvelle charge
         </button>
       </div>
+
+      {templates.length > 0 && (
+        <div className="summary-strip">
+          <span>
+            <strong>{formatAmount(activeTotal)}</strong> de charges fixes par mois
+          </span>
+          <span className="text-muted">
+            {templates.filter((t) => t.active).length} active{templates.filter((t) => t.active).length > 1 ? "s" : ""}
+            {templates.some((t) => !t.active) && ` · ${templates.filter((t) => !t.active).length} en pause`}
+          </span>
+        </div>
+      )}
 
       <div className="card">
         {loading ? (
@@ -95,53 +135,73 @@ export default function Recurring() {
         ) : templates.length === 0 ? (
           <div className="empty-state">
             <Icon name="repeat" size={26} />
-            <span>Aucune charge récurrente. Ajoutez le loyer, l'électricité, le gaz, l'internet...</span>
+            <span>Aucune charge récurrente. Ajoutez le loyer, l'électricité, internet, les abonnements…</span>
+            <button className="btn btn--primary btn--sm" onClick={() => setModalState({})}>
+              <Icon name="plus" size={14} /> Ajouter une charge
+            </button>
           </div>
         ) : (
-          <table className="table">
+          <table className="table table--stack">
             <thead>
               <tr>
                 <th>Charge</th>
-                <th>Catégorie</th>
                 <th>Montant</th>
-                <th>Échéance</th>
-                <th>Statut</th>
+                <th>Répartition</th>
+                <th>Prochaine échéance</th>
                 <th></th>
               </tr>
             </thead>
             <tbody>
               {templates.map((t) => (
-                <tr key={t.id} style={{ opacity: t.active ? 1 : 0.5 }}>
-                  <td style={{ fontWeight: 600 }}>{t.label}</td>
-                  <td>
-                    <span className="pill" style={{ background: `${t.category.color}22`, color: t.category.color }}>
-                      {t.category.icon} {t.category.name}
-                    </span>
+                <tr key={t.id} className={t.active ? "" : "row--muted"}>
+                  <td className="table__primary">
+                    <div style={{ fontWeight: 600, marginBottom: 5 }}>{t.label}</div>
+                    <div className="pill-row">
+                      <span className="pill" style={{ background: `${t.category.color}22`, color: t.category.color }}>
+                        {t.category.icon} {t.category.name}
+                      </span>
+                      {!t.active && <span className="pill pill--neutral">En pause</span>}
+                    </div>
                   </td>
-                  <td style={{ fontWeight: 700 }}>{formatAmount(t.amount)}</td>
-                  <td className="text-muted">Le {t.dayOfMonth} du mois</td>
-                  <td>
+                  <td data-label="Montant" style={{ fontWeight: 700, whiteSpace: "nowrap" }}>
+                    {formatAmount(t.amount)} <span className="text-muted" style={{ fontWeight: 500 }}>/ mois</span>
+                  </td>
+                  <td data-label="Répartition" className="text-muted">
+                    {describeSplit(t.splitType, t.splitConfig, users)}
+                  </td>
+                  <td data-label="Prochaine échéance">
                     {t.active ? (
-                      <span className="pill pill--paid">Active</span>
+                      <>
+                        {formatDate(nextOccurrenceDate(t.dayOfMonth))}
+                        <div className="text-muted" style={{ fontSize: 12 }}>le {t.dayOfMonth} de chaque mois</div>
+                      </>
                     ) : (
-                      <span className="pill pill--neutral">En pause</span>
+                      <span className="text-muted">—</span>
                     )}
                   </td>
-                  <td style={{ textAlign: "right" }}>
+                  <td className="table__actions">
                     <div className="row-actions">
-                      <button className="btn btn--ghost btn--sm" onClick={() => generateNow(t)} disabled={generatingId === t.id}>
-                        Générer ce mois
-                      </button>
-                      <button className="icon-btn" title="Modifier" onClick={() => setModalState({ template: t })}>
+                      <button className="icon-btn" title="Modifier (s'applique aussi aux mois à venir)" onClick={() => setModalState({ template: t })}>
                         <Icon name="pencil" size={14} />
                       </button>
                       <button
                         className="icon-btn"
                         title={t.active ? "Mettre en pause" : "Réactiver"}
                         onClick={() => toggleActive(t)}
+                        disabled={busyId === t.id}
                       >
                         <Icon name={t.active ? "pause" : "play"} size={14} />
                       </button>
+                      {t.active && (
+                        <button
+                          className="icon-btn"
+                          title="Recréer l'échéance de ce mois (si elle a été supprimée par erreur)"
+                          onClick={() => restoreThisMonth(t)}
+                          disabled={busyId === t.id}
+                        >
+                          <Icon name="refresh" size={14} />
+                        </button>
+                      )}
                       <button className="icon-btn icon-btn--danger" title="Supprimer" onClick={() => remove(t)}>
                         <Icon name="trash" size={14} />
                       </button>
@@ -155,122 +215,19 @@ export default function Recurring() {
       </div>
 
       {modalState && (
-        <RecurringFormModal
+        <ExpenseFormModal
           categories={categories}
           users={users}
           template={modalState.template}
+          initialMode="monthly"
           onClose={() => setModalState(null)}
-          onSaved={() => {
+          onSaved={(message) => {
             setModalState(null);
-            showToast("Charge récurrente enregistrée.");
+            showToast(message);
             load();
           }}
         />
       )}
     </div>
-  );
-}
-
-function RecurringFormModal({ categories, users, template, onClose, onSaved }) {
-  const isEdit = Boolean(template);
-  const [label, setLabel] = useState(template?.label || "");
-  const [amount, setAmount] = useState(template?.amount ?? "");
-  const [categoryId, setCategoryId] = useState(template?.categoryId || categories[0]?.id || "");
-  const [dayOfMonth, setDayOfMonth] = useState(template?.dayOfMonth ?? 1);
-  const [split, setSplit] = useState(
-    template
-      ? {
-          splitType: template.splitType,
-          participantIds: template.splitConfig.map((c) => c.userId),
-          splitConfig: template.splitConfig,
-        }
-      : buildDefaultSplitValue(users)
-  );
-  const [error, setError] = useState("");
-  const [saving, setSaving] = useState(false);
-
-  const numericAmount = Number(amount) || 0;
-  const canSubmit = label.trim() && numericAmount > 0 && categoryId && isSplitValid(split, numericAmount);
-
-  async function handleSubmit(e) {
-    e.preventDefault();
-    if (!canSubmit) return;
-    setSaving(true);
-    setError("");
-    try {
-      const payload = {
-        label: label.trim(),
-        amount: numericAmount,
-        categoryId,
-        dayOfMonth: Number(dayOfMonth),
-        splitType: split.splitType,
-        participantIds: split.participantIds,
-        splitConfig: split.splitType === "equal" ? [] : split.splitConfig,
-        active: template?.active ?? true,
-      };
-      if (isEdit) {
-        await api.put(`/recurring-templates/${template.id}`, payload);
-      } else {
-        await api.post("/recurring-templates", payload);
-      }
-      onSaved();
-    } catch (err) {
-      setError(err.message || "Impossible d'enregistrer cette charge.");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <Modal
-      title={isEdit ? "Modifier la charge récurrente" : "Nouvelle charge récurrente"}
-      onClose={onClose}
-      footer={
-        <>
-          <button className="btn btn--ghost" type="button" onClick={onClose}>
-            Annuler
-          </button>
-          <button className="btn btn--primary" type="submit" form="recurring-form" disabled={!canSubmit || saving}>
-            {saving ? "Enregistrement..." : "Enregistrer"}
-          </button>
-        </>
-      }
-    >
-      <form id="recurring-form" onSubmit={handleSubmit}>
-        {error && <div className="form-error">{error}</div>}
-
-        <div className="field">
-          <label htmlFor="r-label">Libellé</label>
-          <input id="r-label" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Ex: Loyer" required />
-        </div>
-
-        <div className="field-row">
-          <div className="field">
-            <label htmlFor="r-amount">Montant (€)</label>
-            <input id="r-amount" type="number" min="0.01" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} required />
-          </div>
-          <div className="field">
-            <label htmlFor="r-day">Jour d'échéance</label>
-            <input id="r-day" type="number" min="1" max="28" value={dayOfMonth} onChange={(e) => setDayOfMonth(e.target.value)} required />
-          </div>
-        </div>
-
-        <div className="field">
-          <label htmlFor="r-category">Catégorie</label>
-          <Select
-            id="r-category"
-            value={categoryId}
-            onChange={setCategoryId}
-            options={categories.map((c) => ({ value: c.id, label: c.name, icon: c.icon }))}
-            placeholder="Choisir une catégorie"
-          />
-        </div>
-
-        <div className="field">
-          <label>Répartition entre le foyer</label>
-          <SplitEditor users={users} amount={numericAmount} value={split} onChange={setSplit} />
-        </div>
-      </form>
-    </Modal>
   );
 }

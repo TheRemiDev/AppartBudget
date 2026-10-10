@@ -8,7 +8,8 @@ import Icon from "../components/Icon.jsx";
 import Modal from "../components/Modal.jsx";
 
 export default function Settings() {
-  const { user, setUser } = useAuth();
+  const { user, setUser, logout } = useAuth();
+  const navigate = useNavigate();
   const [name, setName] = useState(user?.name || "");
   const [color, setColor] = useState(user?.color || "#6366f1");
   const [profileSaving, setProfileSaving] = useState(false);
@@ -55,11 +56,20 @@ export default function Settings() {
       <div className="topbar">
         <div>
           <h1>Paramètres</h1>
-          <div className="topbar__subtitle">Votre profil, votre sécurité et le foyer</div>
+          <div className="topbar__subtitle">Votre profil, votre mot de passe, les membres du foyer et la sauvegarde.</div>
         </div>
+        <button
+          className="btn btn--ghost"
+          onClick={async () => {
+            await logout();
+            navigate("/login", { replace: true });
+          }}
+        >
+          <Icon name="logout" size={15} /> Se déconnecter
+        </button>
       </div>
 
-      <div className="chart-grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
+      <div className="settings-grid">
         <div className="card">
           <div className="card__header">
             <h3>Profil</h3>
@@ -79,7 +89,7 @@ export default function Settings() {
               </div>
 
               <div className="field">
-                <label htmlFor="color">Couleur</label>
+                <label htmlFor="color">Couleur (pastille et graphiques)</label>
                 <input id="color" type="color" value={color} onChange={(e) => setColor(e.target.value)} style={{ padding: 4, height: 40, width: 100 }} />
               </div>
 
@@ -162,7 +172,7 @@ function MembersCard() {
   async function removeMember(member) {
     const ok = await confirmAction({
       title: "Supprimer ce membre",
-      message: `Supprimer définitivement "${member.name}" (${member.email}) du foyer ? Impossible s'il/elle a des dépenses ou versements associés.`,
+      message: `Supprimer définitivement « ${member.name} » (${member.email}) du foyer ? Ce n'est possible que si aucune dépense, part, paiement ou remboursement n'est à son nom.`,
       confirmLabel: "Supprimer",
       danger: true,
     });
@@ -190,7 +200,7 @@ function MembersCard() {
           <div className="spinner" />
         </div>
       ) : (
-        <table className="table">
+        <table className="table table--stack">
           <thead>
             <tr>
               <th>Membre</th>
@@ -201,15 +211,15 @@ function MembersCard() {
           <tbody>
             {members.map((m) => (
               <tr key={m.id}>
-                <td>
+                <td className="table__primary">
                   <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                     <Avatar user={m} size="sm" />
                     <span style={{ fontWeight: 600 }}>{m.name}</span>
                     {m.id === me.id && <span className="pill pill--neutral">Vous</span>}
                   </div>
                 </td>
-                <td className="text-muted">{m.email}</td>
-                <td style={{ textAlign: "right" }}>
+                <td className="text-muted" data-label="Email">{m.email}</td>
+                <td className="table__actions">
                   <div className="row-actions">
                     <button className="icon-btn" title="Modifier" onClick={() => setEditingMember(m)}>
                       <Icon name="pencil" size={14} />
@@ -460,7 +470,7 @@ function BackupCard() {
     const ok = await confirmAction({
       title: "Remplacer toutes les données",
       message:
-        "Ceci va DÉFINITIVEMENT supprimer toutes les données actuelles (dépenses, versements, catégories, comptes...) et les remplacer par celles du fichier importé. Cette action est irréversible. Continuer ?",
+        "Ceci va DÉFINITIVEMENT supprimer toutes les données actuelles (dépenses, paiements, remboursements, catégories, comptes…) et les remplacer par celles du fichier importé. Cette action est irréversible. Continuer ?",
       confirmLabel: "Remplacer tout",
       danger: true,
     });
@@ -488,9 +498,9 @@ function BackupCard() {
       </div>
       <div className="card__body">
         <p className="text-muted" style={{ fontSize: 13, marginTop: 0, marginBottom: 16 }}>
-          Exportez toutes les données de l'application (comptes, dépenses, versements, charges
-          récurrentes, achats échelonnés, budget personnel...) dans un fichier, pour les réimporter
-          telles quelles sur une nouvelle installation.
+          Téléchargez toutes les données de l'application (comptes, dépenses, paiements, remboursements,
+          charges récurrentes, achats échelonnés, budgets personnels…) dans un fichier, pour les garder en
+          sécurité ou les réimporter telles quelles sur une nouvelle installation.
         </p>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
           <button className="btn btn--ghost" onClick={exportData} disabled={exporting}>

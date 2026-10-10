@@ -65,6 +65,46 @@ export async function generateDuePersonalTemplates(now = new Date()) {
   return results;
 }
 
+function upcomingWhere(templateId, now) {
+  return { recurringTemplateId: templateId, date: { gte: new Date(now.getFullYear(), now.getMonth(), now.getDate()) } };
+}
+
+/**
+ * Applique la nouvelle version d'un abonnement/revenu (libelle, montant,
+ * type, jour) aux lignes deja pre-generees pour les mois a venir.
+ */
+export async function syncUpcomingPersonalOccurrences(template, now = new Date()) {
+  const rows = await prisma.personalTransaction.findMany({ where: upcomingWhere(template.id, now) });
+  for (const r of rows) {
+    const d = new Date(r.date);
+    await prisma.personalTransaction.update({
+      where: { id: r.id },
+      data: {
+        label: template.label,
+        amount: template.amount,
+        kind: template.kind,
+        date: new Date(d.getFullYear(), d.getMonth(), Math.min(template.dayOfMonth, 28)),
+      },
+    });
+  }
+  return { updated: rows.length };
+}
+
+/**
+ * Retire les lignes a venir d'un abonnement mis en pause ou supprime, et
+ * leur trace dans le ledger (une reactivation les regenere normalement).
+ */
+export async function removeUpcomingPersonalOccurrences(template, now = new Date()) {
+  const rows = await prisma.personalTransaction.findMany({ where: upcomingWhere(template.id, now) });
+  for (const r of rows) {
+    await prisma.personalTransaction.delete({ where: { id: r.id } });
+    await prisma.recurringGeneration.deleteMany({
+      where: { templateId: template.id, yearMonth: yearMonthKey(new Date(r.date)) },
+    });
+  }
+  return { removed: rows.length };
+}
+
 /**
  * Genere immediatement la fenetre de prevision pour UN SEUL abonnement : a
  * appeler a sa creation/reactivation, pour ne pas attendre le cron nocturne.

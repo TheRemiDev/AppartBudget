@@ -16,6 +16,7 @@ const expenseInclude = {
   category: true,
   createdBy: userSelect,
   installmentPlan: { select: { id: true, label: true, installmentCount: true } },
+  template: { select: { id: true, label: true } },
   shares: {
     include: {
       user: userSelect,

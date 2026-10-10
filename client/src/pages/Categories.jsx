@@ -5,6 +5,7 @@ import Select from "../components/Select.jsx";
 import Icon from "../components/Icon.jsx";
 import { useConfirm, useToast } from "../context/UIContext.jsx";
 import { KIND_OPTIONS, kindLabel } from "../utils/kind.js";
+import { formatAmount } from "../utils/format.js";
 
 const EMPTY_FORM = { name: "", icon: "💶", color: "#6366f1", kind: "occasional", defaultAmount: "" };
 
@@ -21,7 +22,7 @@ export default function Categories() {
   async function load() {
     setLoading(true);
     const { categories } = await api.get("/categories?includeArchived=true");
-    setCategories(categories);
+    setCategories([...categories].sort((a, b) => Number(a.archived) - Number(b.archived) || a.name.localeCompare(b.name)));
     setLoading(false);
   }
 
@@ -65,7 +66,7 @@ export default function Categories() {
         await api.post("/categories", payload);
       }
       setModalState(null);
-      showToast(`Catégorie "${payload.name}" enregistrée.`);
+      showToast(`Catégorie « ${payload.name} » enregistrée.`);
       load();
     } catch (err) {
       setError(err.message || "Impossible d'enregistrer la catégorie.");
@@ -76,13 +77,18 @@ export default function Categories() {
 
   async function toggleArchive(category) {
     await api.patch(`/categories/${category.id}/archive`, { archived: !category.archived });
+    showToast(
+      category.archived
+        ? `« ${category.name} » est de nouveau proposée.`
+        : `« ${category.name} » archivée : elle n'est plus proposée, mais les dépenses existantes la gardent.`
+    );
     load();
   }
 
   async function remove(category) {
     const ok = await confirmAction({
       title: "Supprimer la catégorie",
-      message: `Supprimer définitivement "${category.name}" ? Si elle est déjà utilisée par des dépenses, elle sera archivée à la place.`,
+      message: `Supprimer « ${category.name} » ? Si des dépenses l'utilisent déjà, elle sera simplement archivée (masquée des choix) pour ne rien perdre.`,
       confirmLabel: "Supprimer",
       danger: true,
     });
@@ -90,8 +96,8 @@ export default function Categories() {
     const res = await api.delete(`/categories/${category.id}`);
     showToast(
       res.archived
-        ? `"${category.name}" est utilisée par des dépenses : elle a été archivée.`
-        : `Catégorie "${category.name}" supprimée.`
+        ? `« ${category.name} » est utilisée par des dépenses : elle a été archivée plutôt que supprimée.`
+        : `Catégorie « ${category.name} » supprimée.`
     );
     load();
   }
@@ -100,8 +106,10 @@ export default function Categories() {
     <div>
       <div className="topbar">
         <div>
-          <h1>Catégories de dépenses</h1>
-          <div className="topbar__subtitle">Personnalisez les types de dépenses du foyer</div>
+          <h1>Catégories</h1>
+          <div className="topbar__subtitle">
+            Pour classer les dépenses du foyer. Le type et le montant habituel sont pré-remplis quand vous choisissez la catégorie dans une nouvelle dépense.
+          </div>
         </div>
         <button className="btn btn--primary" onClick={openCreate}>
           <Icon name="plus" size={15} /> Nouvelle catégorie
@@ -117,48 +125,50 @@ export default function Categories() {
           <div className="empty-state">
             <Icon name="tag" size={26} />
             <span>Aucune catégorie pour l'instant.</span>
+            <button className="btn btn--primary btn--sm" onClick={openCreate}>
+              <Icon name="plus" size={14} /> Créer une catégorie
+            </button>
           </div>
         ) : (
-          <table className="table">
+          <table className="table table--stack">
             <thead>
               <tr>
                 <th>Catégorie</th>
-                <th>Type</th>
+                <th>Type par défaut</th>
                 <th>Montant habituel</th>
-                <th>Statut</th>
                 <th></th>
               </tr>
             </thead>
             <tbody>
               {categories.map((c) => (
-                <tr key={c.id} style={{ opacity: c.archived ? 0.5 : 1 }}>
-                  <td>
+                <tr key={c.id} className={c.archived ? "row--muted" : ""}>
+                  <td className="table__primary">
                     <span className="pill" style={{ background: `${c.color}22`, color: c.color }}>
                       {c.icon} {c.name}
                     </span>
-                  </td>
-                  <td>
-                    <span className={`pill pill--kind-${c.kind}`}>{kindLabel(c.kind)}</span>
-                  </td>
-                  <td className="text-muted">{c.defaultAmount ? `${c.defaultAmount.toFixed(2)} €` : "—"}</td>
-                  <td>
-                    {c.archived ? (
-                      <span className="pill pill--neutral">Archivée</span>
-                    ) : (
-                      <span className="pill pill--paid">Active</span>
+                    {c.archived && (
+                      <span className="pill pill--neutral" style={{ marginLeft: 6 }}>
+                        Archivée
+                      </span>
                     )}
                   </td>
-                  <td style={{ textAlign: "right" }}>
+                  <td data-label="Type par défaut">
+                    <span className={`pill pill--kind-${c.kind}`}>{kindLabel(c.kind)}</span>
+                  </td>
+                  <td data-label="Montant habituel" className="text-muted">
+                    {c.defaultAmount ? formatAmount(c.defaultAmount) : "—"}
+                  </td>
+                  <td className="table__actions">
                     <div className="row-actions">
                       <button className="icon-btn" title="Modifier" onClick={() => openEdit(c)}>
                         <Icon name="pencil" size={14} />
                       </button>
                       <button
                         className="icon-btn"
-                        title={c.archived ? "Réactiver" : "Archiver"}
+                        title={c.archived ? "Désarchiver (la proposer à nouveau)" : "Archiver (ne plus la proposer, sans toucher aux dépenses existantes)"}
                         onClick={() => toggleArchive(c)}
                       >
-                        <Icon name={c.archived ? "play" : "pause"} size={14} />
+                        <Icon name={c.archived ? "unarchive" : "archive"} size={14} />
                       </button>
                       <button className="icon-btn icon-btn--danger" title="Supprimer" onClick={() => remove(c)}>
                         <Icon name="trash" size={14} />
@@ -220,10 +230,15 @@ export default function Categories() {
                   type="number"
                   min="0"
                   step="0.01"
+                  placeholder="Ex : 950"
                   value={form.defaultAmount}
                   onChange={(e) => setForm({ ...form, defaultAmount: e.target.value })}
                 />
               </div>
+            </div>
+            <div className="field-help" style={{ marginTop: -6 }}>
+              <Icon name="info" size={13} /> Quand vous choisirez cette catégorie pour une nouvelle dépense, le type et le
+              montant habituel seront pré-remplis (vous pourrez toujours les changer).
             </div>
           </form>
         </Modal>

@@ -107,13 +107,16 @@ usersRouter.delete(
       return res.status(400).json({ error: "Impossible de supprimer le dernier compte du foyer." });
     }
 
-    const [expenseCount, shareCount, templateCount, paymentCount] = await Promise.all([
+    const [expenseCount, shareCount, templateCount, paymentCount, settlementCount] = await Promise.all([
       prisma.expense.count({ where: { createdById: req.params.id } }),
       prisma.expenseShare.count({ where: { userId: req.params.id } }),
       prisma.recurringTemplate.count({ where: { createdById: req.params.id } }),
       prisma.sharePayment.count({ where: { paidByUserId: req.params.id } }),
+      prisma.settlement.count({
+        where: { OR: [{ fromUserId: req.params.id }, { toUserId: req.params.id }, { createdById: req.params.id }] },
+      }),
     ]);
-    if (expenseCount || shareCount || templateCount || paymentCount) {
+    if (expenseCount || shareCount || templateCount || paymentCount || settlementCount) {
       return res.status(400).json({
         error:
           "Ce membre a des dépenses, parts ou versements associés : impossible de le supprimer sans perdre cet historique.",

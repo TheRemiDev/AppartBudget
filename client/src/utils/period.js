@@ -40,6 +40,14 @@ export function shiftAnchor(period, anchorDate, direction) {
   return anchor;
 }
 
+// Prochaine date (aujourd'hui inclus) tombant le jour `day` du mois.
+export function nextOccurrenceDate(day, from = new Date()) {
+  const d = Math.min(Math.max(day, 1), 28);
+  const today = new Date(from.getFullYear(), from.getMonth(), from.getDate());
+  const candidate = new Date(from.getFullYear(), from.getMonth(), d);
+  return candidate >= today ? candidate : new Date(from.getFullYear(), from.getMonth() + 1, d);
+}
+
 export function formatPeriodLabel(period, anchorDate) {
   const anchor = new Date(anchorDate);
   const { from, to } = getPeriodRange(period, anchorDate);

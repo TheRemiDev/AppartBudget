@@ -21,7 +21,7 @@ const COLOR_WARNING_SOFT = "#fdf3e6";
 const COLOR_INFO = "#2f80d6";
 const COLOR_INFO_SOFT = "#eaf3fd";
 
-const KIND_LABELS = { fixed: "Fixe", occasional: "Ponctuel", exceptional: "Exceptionnel" };
+const KIND_LABELS = { fixed: "Fixe", occasional: "Courant", exceptional: "Exceptionnel" };
 const KIND_PILL = {
   fixed: { bg: COLOR_PRIMARY_SOFT, color: COLOR_PRIMARY },
   occasional: { bg: COLOR_INFO_SOFT, color: COLOR_INFO },
@@ -192,7 +192,7 @@ function drawTableRow(doc, columns, row, index) {
 export async function streamMonthlyReportPdf(res, { from, to, periodLabel }) {
   const dateRange = { gte: new Date(from), lte: new Date(to) };
 
-  const [expenses, payments, users] = await Promise.all([
+  const [expenses, payments, users, settlements] = await Promise.all([
     prisma.expense.findMany({
       where: { date: dateRange },
       include: {
@@ -210,6 +210,11 @@ export async function streamMonthlyReportPdf(res, { from, to, periodLabel }) {
       orderBy: { date: "asc" },
     }),
     prisma.user.findMany({ orderBy: { createdAt: "asc" } }),
+    prisma.settlement.findMany({
+      where: { date: dateRange },
+      include: { fromUser: true, toUser: true },
+      orderBy: { date: "asc" },
+    }),
   ]);
 
   const totalAmount = round2(expenses.reduce((s, e) => s + e.amount, 0));
@@ -329,7 +334,7 @@ export async function streamMonthlyReportPdf(res, { from, to, periodLabel }) {
   const statCards = [
     { label: "Total", value: formatAmount(totalAmount), accent: COLOR_PRIMARY },
     { label: "Frais fixes", value: formatAmount(totalByKind.fixed), accent: COLOR_PRIMARY },
-    { label: "Frais ponctuels", value: formatAmount(totalByKind.occasional), accent: COLOR_INFO },
+    { label: "Frais courants", value: formatAmount(totalByKind.occasional), accent: COLOR_INFO },
     { label: "Frais exceptionnels", value: formatAmount(totalByKind.exceptional), accent: COLOR_WARNING },
   ];
   drawCardGrid(doc, statCards, 56, 118, (item, x, y, w) => {
@@ -360,10 +365,10 @@ export async function streamMonthlyReportPdf(res, { from, to, periodLabel }) {
       const statusY = barY + 12;
       if (u.pending > 0.005) {
         doc.font("Helvetica-Bold").fontSize(8.5).fillColor(COLOR_DANGER);
-        doc.text(`${formatAmount(u.pending)} restant à confirmer`, x + pad, statusY, { width: barW, lineBreak: false });
+        doc.text(`${formatAmount(u.pending)} reste à payer`, x + pad, statusY, { width: barW, lineBreak: false });
       } else {
         doc.font("Helvetica-Bold").fontSize(8.5).fillColor(COLOR_SUCCESS);
-        doc.text("Tout est réglé", x + pad, statusY, { width: barW, lineBreak: false });
+        doc.text("Tout est payé", x + pad, statusY, { width: barW, lineBreak: false });
       }
 
       // Qui a paye combien : meme information que la carte equivalente du
@@ -445,7 +450,7 @@ export async function streamMonthlyReportPdf(res, { from, to, periodLabel }) {
     drawTableHeader(doc, cols);
     expenses.forEach((e, i) => {
       const split = e.shares
-        .map((s) => `${s.user.name} : ${formatAmount(s.amount)}${s.paid ? "  (réglé)" : ""}`)
+        .map((s) => `${s.user.name} : ${formatAmount(s.amount)}${s.paid ? "  (payé)" : ""}`)
         .join("\n");
       drawTableRow(
         doc,
@@ -464,10 +469,10 @@ export async function streamMonthlyReportPdf(res, { from, to, periodLabel }) {
   }
 
   // ---- Historique des versements ----
-  sectionTitle(doc, "Historique des versements");
+  sectionTitle(doc, "Historique des paiements");
   if (payments.length === 0) {
     doc.font("Helvetica").fontSize(10).fillColor(COLOR_MUTED);
-    fullWidthText(doc, "Aucun versement enregistré sur cette période.");
+    fullWidthText(doc, "Aucun paiement enregistré sur cette période.");
   } else {
     const cols = [
       { key: "date", label: "Date", x: MARGIN, width: 62, color: () => COLOR_MUTED },
@@ -491,9 +496,43 @@ export async function streamMonthlyReportPdf(res, { from, to, periodLabel }) {
         {
           date: formatDate(p.date),
           payer: p.paidBy.name,
-          for: p.share.userId === p.paidByUserId ? "Lui-même" : p.share.user.name,
+          for: p.share.user.name,
           expense: p.share.expense.label,
           amount: formatAmount(p.amount),
+        },
+        i
+      );
+    });
+  }
+
+  // ---- Remboursements directs entre membres ----
+  if (settlements.length > 0) {
+    sectionTitle(doc, "Remboursements entre vous");
+    const cols = [
+      { key: "date", label: "Date", x: MARGIN, width: 62, color: () => COLOR_MUTED },
+      { key: "from", label: "De", x: MARGIN + 66, width: 100 },
+      { key: "to", label: "À", x: MARGIN + 170, width: 100 },
+      { key: "note", label: "Note", x: MARGIN + 274, width: 130, color: () => COLOR_MUTED },
+      {
+        key: "amount",
+        label: "Montant",
+        x: MARGIN + 408,
+        width: CONTENT_WIDTH - 408,
+        align: "right",
+        color: () => COLOR_SUCCESS,
+      },
+    ];
+    drawTableHeader(doc, cols);
+    settlements.forEach((st, i) => {
+      drawTableRow(
+        doc,
+        cols,
+        {
+          date: formatDate(st.date),
+          from: st.fromUser.name,
+          to: st.toUser.name,
+          note: st.note || "",
+          amount: formatAmount(st.amount),
         },
         i
       );

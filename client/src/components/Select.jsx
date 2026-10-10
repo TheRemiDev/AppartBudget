@@ -28,16 +28,21 @@ export default function Select({ id, value, onChange, options, placeholder = "Ch
       setOpen(false);
     }
     function handleKey(e) {
-      if (e.key === "Escape") setOpen(false);
+      if (e.key === "Escape") {
+        // Phase de capture + stopPropagation : Echap ferme le menu sans
+        // fermer aussi la modale qui le contient.
+        e.stopPropagation();
+        setOpen(false);
+      }
     }
 
     document.addEventListener("mousedown", handleClickOutside);
-    document.addEventListener("keydown", handleKey);
+    document.addEventListener("keydown", handleKey, true);
     window.addEventListener("scroll", updatePosition, true);
     window.addEventListener("resize", updatePosition);
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
-      document.removeEventListener("keydown", handleKey);
+      document.removeEventListener("keydown", handleKey, true);
       window.removeEventListener("scroll", updatePosition, true);
       window.removeEventListener("resize", updatePosition);
     };
@@ -83,7 +88,10 @@ export default function Select({ id, value, onChange, options, placeholder = "Ch
               }}
             >
               {opt.icon && <span className="select__icon">{opt.icon}</span>}
-              <span style={{ flex: 1, textAlign: "left" }}>{opt.label}</span>
+              <span style={{ flex: 1, textAlign: "left", minWidth: 0 }}>
+                {opt.label}
+                {opt.hint && <span className="select__hint">{opt.hint}</span>}
+              </span>
               {opt.value === value && <Icon name="check" size={14} />}
             </button>
           ))}

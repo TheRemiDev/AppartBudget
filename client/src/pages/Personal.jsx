@@ -1,14 +1,24 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { api } from "../api/client.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useConfirm, useToast } from "../context/UIContext.jsx";
 import PeriodSelector from "../components/PeriodSelector.jsx";
 import Select from "../components/Select.jsx";
-import Modal from "../components/Modal.jsx";
 import Icon from "../components/Icon.jsx";
 import Avatar from "../components/Avatar.jsx";
-import { formatAmount, formatDate, toInputDate } from "../utils/format.js";
-import { getPeriodRange } from "../utils/period.js";
+import PersonalEntryModal from "../components/PersonalEntryModal.jsx";
+import { formatAmount, formatDate } from "../utils/format.js";
+import { getPeriodRange, formatPeriodLabel, nextOccurrenceDate } from "../utils/period.js";
+
+function SignedAmount({ kind, amount }) {
+  return (
+    <span style={{ fontWeight: 700, color: kind === "income" ? "var(--color-success)" : "var(--color-text)", whiteSpace: "nowrap" }}>
+      {kind === "income" ? "+" : "−"}
+      {formatAmount(amount)}
+    </span>
+  );
+}
 
 export default function Personal() {
   const { user } = useAuth();
@@ -19,36 +29,35 @@ export default function Personal() {
   const [period, setPeriod] = useState("month");
   const [anchor, setAnchor] = useState(new Date());
   const [summary, setSummary] = useState(null);
+  const [householdShare, setHouseholdShare] = useState(0);
   const [groups, setGroups] = useState([]);
   const [recurringTemplates, setRecurringTemplates] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [modalState, setModalState] = useState(null); // null | { kind, transaction? }
-  const [recurringModalState, setRecurringModalState] = useState(null); // null | { template? }
-  const [generatingId, setGeneratingId] = useState(null);
+  const [modalState, setModalState] = useState(null); // null | { transaction? , template? }
+  const [busyId, setBusyId] = useState(null);
 
   const isOwn = viewUserId === user?.id;
+  const periodLabel = formatPeriodLabel(period, anchor);
 
   useEffect(() => {
-    api.get("/users").then((res) => {
-      setUsers(res.users);
-      if (!viewUserId && res.users[0]) setViewUserId(user?.id || res.users[0].id);
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    api.get("/users").then((res) => setUsers(res.users));
   }, []);
 
   async function load() {
     if (!viewUserId) return;
     setLoading(true);
     const { from, to } = getPeriodRange(period, anchor);
-    const params = new URLSearchParams({ from: from.toISOString(), to: to.toISOString(), userId: viewUserId });
-    const [s, g, r] = await Promise.all([
-      api.get(`/personal?${params.toString()}`),
+    const range = { from: from.toISOString(), to: to.toISOString() };
+    const [s, g, r, household] = await Promise.all([
+      api.get(`/personal?${new URLSearchParams({ ...range, userId: viewUserId })}`),
       api.get(`/personal/groups?userId=${viewUserId}`),
       api.get(`/personal-recurring?userId=${viewUserId}`),
+      api.get(`/dashboard/summary?${new URLSearchParams(range)}`),
     ]);
     setSummary(s);
     setGroups(g.groups);
     setRecurringTemplates(r.templates);
+    setHouseholdShare(household.byUser.find((u) => u.userId === viewUserId)?.assigned || 0);
     setLoading(false);
   }
 
@@ -60,7 +69,9 @@ export default function Personal() {
   async function remove(tx) {
     const ok = await confirmAction({
       title: "Supprimer cette ligne",
-      message: `Supprimer "${tx.label}" (${formatAmount(tx.amount)}) ?`,
+      message: `Supprimer « ${tx.label} » (${formatAmount(tx.amount)}) ?${
+        tx.recurringTemplateId ? " Elle ne sera pas recréée automatiquement pour ce mois-ci." : ""
+      }`,
       confirmLabel: "Supprimer",
       danger: true,
     });
@@ -73,13 +84,13 @@ export default function Personal() {
   async function removeGroup(group) {
     const ok = await confirmAction({
       title: "Supprimer cette série",
-      message: `Supprimer définitivement "${group.label}" et ses ${group.installmentCount} lignes réparties dans le temps ?`,
+      message: `Supprimer définitivement « ${group.label} » et ses ${group.itemCount} mensualités ?`,
       confirmLabel: "Supprimer tout",
       danger: true,
     });
     if (!ok) return;
     await api.delete(`/personal/groups/${group.groupId}`);
-    showToast(`"${group.label}" supprimé.`);
+    showToast(`« ${group.label} » supprimé.`);
     load();
   }
 
@@ -88,95 +99,105 @@ export default function Personal() {
       const { created } = await api.post(`/personal/groups/${group.groupId}/regenerate`);
       showToast(
         created.length
-          ? `${created.length} mensualité(s) manquante(s) recréée(s).`
-          : "Rien à recréer, la série est déjà complète."
+          ? `${created.length} mensualité${created.length > 1 ? "s" : ""} recréée${created.length > 1 ? "s" : ""}.`
+          : "Rien à recréer, toutes les mensualités sont là."
       );
       load();
     } catch (err) {
-      showToast(err.message || "Impossible de recréer les mensualités manquantes.", "error");
+      showToast(err.message || "Impossible de recréer les mensualités.", "error");
     }
   }
 
   async function toggleRecurringActive(template) {
-    await api.put(`/personal-recurring/${template.id}`, {
-      label: template.label,
-      amount: template.amount,
-      kind: template.kind,
-      dayOfMonth: template.dayOfMonth,
-      active: !template.active,
-    });
-    load();
+    setBusyId(template.id);
+    try {
+      const res = await api.put(`/personal-recurring/${template.id}`, {
+        label: template.label,
+        amount: template.amount,
+        kind: template.kind,
+        dayOfMonth: template.dayOfMonth,
+        active: !template.active,
+      });
+      const removed = res.occurrences?.removed || 0;
+      showToast(
+        template.active
+          ? `« ${template.label} » en pause${removed ? ` (${removed} mois à venir retiré${removed > 1 ? "s" : ""})` : ""}.`
+          : `« ${template.label} » réactivé.`
+      );
+      load();
+    } finally {
+      setBusyId(null);
+    }
   }
 
   async function removeRecurring(template) {
     const ok = await confirmAction({
-      title: "Supprimer cet abonnement récurrent",
-      message: `Supprimer définitivement "${template.label}" ? Les lignes déjà générées ne seront pas supprimées.`,
+      title: "Supprimer",
+      message: `Supprimer définitivement « ${template.label} » ? Les mois passés restent ; les mois à venir sont retirés.`,
       confirmLabel: "Supprimer",
       danger: true,
     });
     if (!ok) return;
     await api.delete(`/personal-recurring/${template.id}`);
-    showToast(`"${template.label}" supprimé.`);
+    showToast(`« ${template.label} » supprimé.`);
     load();
   }
 
-  async function generateRecurringNow(template) {
-    setGeneratingId(template.id);
+  async function restoreRecurringThisMonth(template) {
+    setBusyId(template.id);
     try {
-      await api.post(`/personal-recurring/${template.id}/generate-now`);
-      showToast(`"${template.label}" a été générée pour le mois en cours.`);
+      const res = await api.post(`/personal-recurring/${template.id}/generate-now`);
+      showToast(res.created ? `« ${template.label} » recréé pour ce mois-ci.` : `« ${template.label} » est déjà présent ce mois-ci.`);
       load();
     } catch (err) {
       showToast(err.message, "error");
     } finally {
-      setGeneratingId(null);
+      setBusyId(null);
     }
   }
 
   const viewedUser = users.find((u) => u.id === viewUserId);
-  const remaining = summary?.remaining ?? 0;
+  const income = summary?.totalIncome ?? 0;
+  const expense = summary?.totalExpense ?? 0;
+  const leftover = Math.round((income - expense - householdShare) * 100) / 100;
 
   return (
     <div>
       <div className="topbar">
         <div>
-          <h1>Budget personnel</h1>
-          <div className="topbar__subtitle">Revenus et dépenses propres à chacun, séparés du foyer</div>
+          <h1>{isOwn ? "Mon budget" : `Budget de ${viewedUser?.name || "…"}`}</h1>
+          <div className="topbar__subtitle">Revenus et dépenses personnels, en dehors des dépenses communes du foyer.</div>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-          <Select
-            value={viewUserId}
-            onChange={setViewUserId}
-            style={{ minWidth: 190 }}
-            options={users.map((u) => ({
-              value: u.id,
-              label: u.id === user?.id ? `${u.name} (moi)` : u.name,
-            }))}
-          />
-          <PeriodSelector period={period} onPeriodChange={setPeriod} anchor={anchor} onAnchorChange={setAnchor} />
+        <div className="topbar__actions">
+          {users.length > 1 && (
+            <Select
+              value={viewUserId}
+              onChange={setViewUserId}
+              style={{ minWidth: 200 }}
+              options={users.map((u) => ({
+                value: u.id,
+                label: u.id === user?.id ? "Mon budget" : `Budget de ${u.name}`,
+              }))}
+            />
+          )}
+          {isOwn && (
+            <button className="btn btn--primary" onClick={() => setModalState({})}>
+              <Icon name="plus" size={15} /> Ajouter
+            </button>
+          )}
         </div>
       </div>
 
       {!isOwn && (
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            fontSize: 12.5,
-            color: "var(--color-text-muted)",
-            background: "var(--color-surface-2)",
-            border: "1px solid var(--color-border)",
-            borderRadius: 9,
-            padding: "8px 12px",
-            marginBottom: 18,
-          }}
-        >
+        <div className="notice" style={{ marginBottom: 18 }}>
           <Avatar user={viewedUser} size="sm" />
-          Vous consultez le budget de {viewedUser?.name} en lecture seule.
+          <span>Vous consultez le budget de {viewedUser?.name} en lecture seule : seul·e {viewedUser?.name} peut le modifier.</span>
         </div>
       )}
+
+      <div className="toolbar">
+        <PeriodSelector period={period} onPeriodChange={setPeriod} anchor={anchor} onAnchorChange={setAnchor} />
+      </div>
 
       {loading || !summary ? (
         <div className="center-screen" style={{ minHeight: 240 }}>
@@ -184,7 +205,7 @@ export default function Personal() {
         </div>
       ) : (
         <>
-          <div className="card-grid">
+          <div className="card-grid card-grid--kpi">
             <div className="stat-card">
               <div className="stat-card__top">
                 <span className="stat-card__label">Revenus</span>
@@ -192,58 +213,65 @@ export default function Personal() {
                   <Icon name="wallet" size={17} />
                 </span>
               </div>
-              <div className="stat-card__value">{formatAmount(summary.totalIncome)}</div>
+              <div className="stat-card__value" style={{ color: "var(--color-success)" }}>+{formatAmount(income)}</div>
+              <div className="stat-card__hint">Salaire, aides, remboursements…</div>
             </div>
             <div className="stat-card">
               <div className="stat-card__top">
-                <span className="stat-card__label">Dépenses</span>
+                <span className="stat-card__label">Dépenses perso</span>
                 <span className="icon-badge icon-badge--warning">
                   <Icon name="shoppingBag" size={16} />
                 </span>
               </div>
-              <div className="stat-card__value">{formatAmount(summary.totalExpense)}</div>
+              <div className="stat-card__value">−{formatAmount(expense)}</div>
+              <div className="stat-card__hint">Ce qui ne concerne que {isOwn ? "vous" : viewedUser?.name}</div>
             </div>
             <div className="stat-card">
               <div className="stat-card__top">
-                <span className="stat-card__label">Reste</span>
-                <span className={`icon-badge ${remaining >= 0 ? "icon-badge--primary" : "icon-badge--danger"}`}>
+                <span className="stat-card__label">Part du foyer</span>
+                <span className="icon-badge icon-badge--primary">
+                  <Icon name="dashboard" size={16} />
+                </span>
+              </div>
+              <div className="stat-card__value">−{formatAmount(householdShare)}</div>
+              <div className="stat-card__hint">
+                {isOwn ? "Votre part" : "Sa part"} des{" "}
+                <Link to="/depenses" className="stat-card__link">
+                  dépenses communes
+                </Link>
+              </div>
+            </div>
+            <div className={`stat-card stat-card--featured${leftover < 0 ? " stat-card--negative" : ""}`}>
+              <div className="stat-card__top">
+                <span className="stat-card__label">Reste à vivre</span>
+                <span className="icon-badge">
                   <Icon name="coins" size={16} />
                 </span>
               </div>
-              <div className="stat-card__value" style={{ color: remaining < 0 ? "var(--color-danger)" : undefined }}>
-                {formatAmount(remaining)}
-              </div>
+              <div className="stat-card__value">{formatAmount(leftover)}</div>
+              <div className="stat-card__hint">Revenus − dépenses perso − part du foyer</div>
             </div>
           </div>
 
-          {isOwn && (
-            <div className="flex-between" style={{ marginBottom: 18, flexWrap: "wrap", gap: 10 }}>
-              <div />
-              <div style={{ display: "flex", gap: 8 }}>
-                <button className="btn btn--ghost" onClick={() => setRecurringModalState({})}>
-                  <Icon name="repeat" size={15} /> Abonnement récurrent
-                </button>
-                <button className="btn btn--ghost" onClick={() => setModalState({ kind: "income" })}>
-                  <Icon name="plus" size={15} /> Revenu
-                </button>
-                <button className="btn btn--primary" onClick={() => setModalState({ kind: "expense" })}>
-                  <Icon name="plus" size={15} /> Dépense
-                </button>
-              </div>
-            </div>
-          )}
-
-          <div className="card" style={{ marginBottom: 14 }}>
+          <div className="card">
             <div className="card__header">
-              <h3>Mouvements de la période</h3>
+              <div>
+                <h3>Mouvements</h3>
+                <div className="card__subtitle">{periodLabel}</div>
+              </div>
             </div>
             {summary.transactions.length === 0 ? (
               <div className="empty-state">
                 <Icon name="inbox" size={26} />
-                <span>Rien sur cette période.</span>
+                <span>Rien d'enregistré pour {periodLabel}.</span>
+                {isOwn && (
+                  <button className="btn btn--primary btn--sm" onClick={() => setModalState({})}>
+                    <Icon name="plus" size={14} /> Ajouter une dépense ou un revenu
+                  </button>
+                )}
               </div>
             ) : (
-              <table className="table">
+              <table className="table table--stack">
                 <thead>
                   <tr>
                     <th>Date</th>
@@ -255,30 +283,25 @@ export default function Personal() {
                 <tbody>
                   {summary.transactions.map((t) => (
                     <tr key={t.id}>
-                      <td className="text-muted">{formatDate(t.date)}</td>
-                      <td>
-                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <td className="text-muted" data-label="Date">{formatDate(t.date)}</td>
+                      <td className="table__primary">
+                        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
                           <span style={{ fontWeight: 600 }}>{t.label}</span>
                           {t.recurringTemplateId && (
-                            <span className="pill pill--neutral" title="Abonnement récurrent">
-                              <Icon name="repeat" size={11} />
+                            <span className="pill pill--neutral">
+                              <Icon name="repeat" size={11} /> Chaque mois
                             </span>
                           )}
                         </div>
-                        {t.note && (
-                          <div className="text-muted" style={{ fontSize: 12, marginTop: 3 }}>
-                            {t.note}
-                          </div>
-                        )}
+                        {t.note && <div className="text-muted" style={{ fontSize: 12, marginTop: 3 }}>{t.note}</div>}
                       </td>
-                      <td style={{ fontWeight: 700, color: t.kind === "income" ? "var(--color-success)" : "var(--color-text)" }}>
-                        {t.kind === "income" ? "+" : "-"}
-                        {formatAmount(t.amount)}
+                      <td data-label="Montant">
+                        <SignedAmount kind={t.kind} amount={t.amount} />
                       </td>
                       {isOwn && (
-                        <td style={{ textAlign: "right" }}>
+                        <td className="table__actions">
                           <div className="row-actions">
-                            <button className="icon-btn" title="Modifier" onClick={() => setModalState({ kind: t.kind, transaction: t })}>
+                            <button className="icon-btn" title="Modifier" onClick={() => setModalState({ transaction: t })}>
                               <Icon name="pencil" size={14} />
                             </button>
                             <button className="icon-btn icon-btn--danger" title="Supprimer" onClick={() => remove(t)}>
@@ -295,62 +318,60 @@ export default function Personal() {
           </div>
 
           {(recurringTemplates.length > 0 || isOwn) && (
-            <div className="card" style={{ marginBottom: 14 }}>
+            <div className="card">
               <div className="card__header">
-                <h3>Abonnements et revenus récurrents</h3>
+                <div>
+                  <h3>Chaque mois</h3>
+                  <div className="card__subtitle">Salaire, abonnements… ajoutés automatiquement chaque mois</div>
+                </div>
               </div>
               {recurringTemplates.length === 0 ? (
-                <div className="empty-state">
-                  <Icon name="repeat" size={26} />
-                  <span>Aucun abonnement récurrent. Ajoutez un forfait téléphonique, un salaire...</span>
+                <div className="empty-state empty-state--compact">
+                  <Icon name="repeat" size={22} />
+                  <span>Rien pour l'instant. Choisissez « Chaque mois » en ajoutant un salaire ou un forfait.</span>
                 </div>
               ) : (
-                <table className="table">
+                <table className="table table--stack">
                   <thead>
                     <tr>
                       <th>Libellé</th>
                       <th>Montant</th>
-                      <th>Échéance</th>
-                      <th>Statut</th>
+                      <th>Prochaine fois</th>
                       {isOwn && <th></th>}
                     </tr>
                   </thead>
                   <tbody>
                     {recurringTemplates.map((rt) => (
-                      <tr key={rt.id} style={{ opacity: rt.active ? 1 : 0.5 }}>
-                        <td style={{ fontWeight: 600 }}>{rt.label}</td>
-                        <td style={{ fontWeight: 700, color: rt.kind === "income" ? "var(--color-success)" : "var(--color-text)" }}>
-                          {rt.kind === "income" ? "+" : "-"}
-                          {formatAmount(rt.amount)}
-                        </td>
-                        <td className="text-muted">Le {rt.dayOfMonth} du mois</td>
-                        <td>
-                          {rt.active ? (
-                            <span className="pill pill--paid">Actif</span>
-                          ) : (
-                            <span className="pill pill--neutral">En pause</span>
+                      <tr key={rt.id} className={rt.active ? "" : "row--muted"}>
+                        <td className="table__primary">
+                          <span style={{ fontWeight: 600 }}>{rt.label}</span>
+                          {!rt.active && (
+                            <span className="pill pill--neutral" style={{ marginLeft: 6 }}>
+                              En pause
+                            </span>
                           )}
                         </td>
+                        <td data-label="Montant">
+                          <SignedAmount kind={rt.kind} amount={rt.amount} />
+                          <span className="text-muted"> / mois</span>
+                        </td>
+                        <td data-label="Prochaine fois" className="text-muted">
+                          {rt.active ? `${formatDate(nextOccurrenceDate(rt.dayOfMonth))} (le ${rt.dayOfMonth} du mois)` : "—"}
+                        </td>
                         {isOwn && (
-                          <td style={{ textAlign: "right" }}>
+                          <td className="table__actions">
                             <div className="row-actions">
-                              <button
-                                className="btn btn--ghost btn--sm"
-                                onClick={() => generateRecurringNow(rt)}
-                                disabled={generatingId === rt.id}
-                              >
-                                Générer ce mois
-                              </button>
-                              <button className="icon-btn" title="Modifier" onClick={() => setRecurringModalState({ template: rt })}>
+                              <button className="icon-btn" title="Modifier (s'applique aussi aux mois à venir)" onClick={() => setModalState({ template: rt })}>
                                 <Icon name="pencil" size={14} />
                               </button>
-                              <button
-                                className="icon-btn"
-                                title={rt.active ? "Mettre en pause" : "Réactiver"}
-                                onClick={() => toggleRecurringActive(rt)}
-                              >
+                              <button className="icon-btn" title={rt.active ? "Mettre en pause" : "Réactiver"} onClick={() => toggleRecurringActive(rt)} disabled={busyId === rt.id}>
                                 <Icon name={rt.active ? "pause" : "play"} size={14} />
                               </button>
+                              {rt.active && (
+                                <button className="icon-btn" title="Recréer la ligne de ce mois (si supprimée par erreur)" onClick={() => restoreRecurringThisMonth(rt)} disabled={busyId === rt.id}>
+                                  <Icon name="refresh" size={14} />
+                                </button>
+                              )}
                               <button className="icon-btn icon-btn--danger" title="Supprimer" onClick={() => removeRecurring(rt)}>
                                 <Icon name="trash" size={14} />
                               </button>
@@ -368,13 +389,16 @@ export default function Personal() {
           {groups.length > 0 && (
             <div className="card">
               <div className="card__header">
-                <h3>Étalés dans le temps</h3>
+                <div>
+                  <h3>En plusieurs fois</h3>
+                  <div className="card__subtitle">Achats ou revenus étalés sur un nombre de mois connu</div>
+                </div>
               </div>
-              <table className="table">
+              <table className="table table--stack">
                 <thead>
                   <tr>
                     <th>Libellé</th>
-                    <th>Montant total</th>
+                    <th>Total</th>
                     <th>Période</th>
                     {isOwn && <th></th>}
                   </tr>
@@ -384,45 +408,34 @@ export default function Personal() {
                     const missing = g.installmentCount - g.itemCount;
                     return (
                       <tr key={g.groupId}>
-                        <td style={{ fontWeight: 600 }}>
-                          {g.label}
-                          {g.note && (
-                            <div className="text-muted" style={{ fontSize: 12, marginTop: 3, fontWeight: 400 }}>
-                              {g.note}
-                            </div>
-                          )}
+                        <td className="table__primary">
+                          <div style={{ fontWeight: 600 }}>{g.label}</div>
+                          {g.note && <div className="text-muted" style={{ fontSize: 12, marginTop: 3 }}>{g.note}</div>}
                           {missing > 0 && (
-                            <div style={{ marginTop: 5 }}>
-                              <span className="pill pill--pending">
-                                {missing} mensualité{missing > 1 ? "s" : ""} manquante{missing > 1 ? "s" : ""}
-                              </span>
-                            </div>
+                            <span className="pill pill--pending" style={{ marginTop: 5 }}>
+                              {missing} mensualité{missing > 1 ? "s" : ""} supprimée{missing > 1 ? "s" : ""}
+                            </span>
                           )}
                         </td>
-                        <td style={{ fontWeight: 700, color: g.kind === "income" ? "var(--color-success)" : "var(--color-text)" }}>
-                          {formatAmount(g.totalAmount)}
-                          <span className="text-muted" style={{ fontWeight: 500 }}>
-                            {" "}
-                            / {g.itemCount}
-                            {missing > 0 ? ` sur ${g.installmentCount}` : ""} mois
-                          </span>
+                        <td data-label="Total">
+                          <SignedAmount kind={g.kind} amount={g.totalAmount} />
+                          <div className="text-muted" style={{ fontSize: 12 }}>
+                            en {g.itemCount}
+                            {missing > 0 ? ` (sur ${g.installmentCount})` : ""} mois
+                          </div>
                         </td>
-                        <td className="text-muted">
+                        <td data-label="Période" className="text-muted">
                           {formatDate(g.firstDate)} → {formatDate(g.lastDate)}
                         </td>
                         {isOwn && (
-                          <td style={{ textAlign: "right" }}>
+                          <td className="table__actions">
                             <div className="row-actions">
                               {missing > 0 && (
-                                <button
-                                  className="icon-btn"
-                                  title="Recréer les mensualités manquantes"
-                                  onClick={() => regenerateGroup(g)}
-                                >
-                                  <Icon name="repeat" size={14} />
+                                <button className="icon-btn" title="Recréer les mensualités supprimées" onClick={() => regenerateGroup(g)}>
+                                  <Icon name="refresh" size={14} />
                                 </button>
                               )}
-                              <button className="icon-btn icon-btn--danger" title="Supprimer la série" onClick={() => removeGroup(g)}>
+                              <button className="icon-btn icon-btn--danger" title="Supprimer toute la série" onClick={() => removeGroup(g)}>
                                 <Icon name="trash" size={14} />
                               </button>
                             </div>
@@ -439,315 +452,17 @@ export default function Personal() {
       )}
 
       {modalState && (
-        <PersonalTransactionModal
-          kind={modalState.kind}
+        <PersonalEntryModal
           transaction={modalState.transaction}
+          template={modalState.template}
           onClose={() => setModalState(null)}
-          onSaved={() => {
+          onSaved={(message) => {
             setModalState(null);
-            showToast("Enregistré.");
-            load();
-          }}
-        />
-      )}
-
-      {recurringModalState && (
-        <PersonalRecurringModal
-          template={recurringModalState.template}
-          onClose={() => setRecurringModalState(null)}
-          onSaved={() => {
-            setRecurringModalState(null);
-            showToast("Abonnement enregistré.");
+            showToast(message);
             load();
           }}
         />
       )}
     </div>
-  );
-}
-
-function PersonalRecurringModal({ template, onClose, onSaved }) {
-  const isEdit = Boolean(template);
-  const [label, setLabel] = useState(template?.label || "");
-  const [amount, setAmount] = useState(template?.amount ?? "");
-  const [kind, setKind] = useState(template?.kind || "expense");
-  const [dayOfMonth, setDayOfMonth] = useState(template?.dayOfMonth ?? 1);
-  const [error, setError] = useState("");
-  const [saving, setSaving] = useState(false);
-
-  const numericAmount = Number(amount) || 0;
-  const canSubmit = label.trim() && numericAmount > 0 && dayOfMonth;
-
-  async function handleSubmit(e) {
-    e.preventDefault();
-    if (!canSubmit) return;
-    setSaving(true);
-    setError("");
-    try {
-      const payload = {
-        label: label.trim(),
-        amount: numericAmount,
-        kind,
-        dayOfMonth: Number(dayOfMonth),
-        active: template?.active ?? true,
-      };
-      if (isEdit) {
-        await api.put(`/personal-recurring/${template.id}`, payload);
-      } else {
-        await api.post("/personal-recurring", payload);
-      }
-      onSaved();
-    } catch (err) {
-      setError(err.message || "Impossible d'enregistrer cet abonnement.");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <Modal
-      title={isEdit ? "Modifier l'abonnement récurrent" : "Nouvel abonnement récurrent"}
-      onClose={onClose}
-      footer={
-        <>
-          <button className="btn btn--ghost" type="button" onClick={onClose}>
-            Annuler
-          </button>
-          <button className="btn btn--primary" type="submit" form="personal-recurring-form" disabled={!canSubmit || saving}>
-            {saving ? "Enregistrement..." : "Enregistrer"}
-          </button>
-        </>
-      }
-    >
-      <form id="personal-recurring-form" onSubmit={handleSubmit}>
-        {error && <div className="form-error">{error}</div>}
-
-        <div className="field">
-          <label htmlFor="pr-label">Libellé</label>
-          <input
-            id="pr-label"
-            value={label}
-            onChange={(e) => setLabel(e.target.value)}
-            placeholder="Ex: Forfait téléphonique"
-            required
-          />
-        </div>
-
-        <div className="field">
-          <label htmlFor="pr-kind">Type</label>
-          <Select
-            id="pr-kind"
-            value={kind}
-            onChange={setKind}
-            options={[
-              { value: "expense", label: "Dépense" },
-              { value: "income", label: "Revenu" },
-            ]}
-          />
-        </div>
-
-        <div className="field-row">
-          <div className="field">
-            <label htmlFor="pr-amount">Montant (€)</label>
-            <input
-              id="pr-amount"
-              type="number"
-              min="0.01"
-              step="0.01"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              required
-            />
-          </div>
-          <div className="field">
-            <label htmlFor="pr-day">Jour d'échéance</label>
-            <input
-              id="pr-day"
-              type="number"
-              min="1"
-              max="28"
-              value={dayOfMonth}
-              onChange={(e) => setDayOfMonth(e.target.value)}
-              required
-            />
-          </div>
-        </div>
-      </form>
-    </Modal>
-  );
-}
-
-function PersonalTransactionModal({ kind, transaction, onClose, onSaved }) {
-  const isEdit = Boolean(transaction);
-  const [label, setLabel] = useState(transaction?.label || "");
-  const [amount, setAmount] = useState(transaction?.amount ?? "");
-  const [laterAmount, setLaterAmount] = useState("");
-  const [sameAsFirst, setSameAsFirst] = useState(true);
-  const [date, setDate] = useState(transaction ? toInputDate(transaction.date) : toInputDate(new Date()));
-  const [note, setNote] = useState(transaction?.note || "");
-  const [months, setMonths] = useState(1);
-  const [error, setError] = useState("");
-  const [saving, setSaving] = useState(false);
-
-  const numericAmount = Number(amount) || 0;
-  const numericMonths = Number(months) || 1;
-  const isInstallment = kind === "expense" && numericMonths > 1;
-  const numericLaterAmount = sameAsFirst ? numericAmount : Number(laterAmount) || 0;
-  const canSubmit =
-    label.trim() && numericAmount > 0 && date && numericMonths >= 1 && (!isInstallment || numericLaterAmount > 0);
-
-  async function handleSubmit(e) {
-    e.preventDefault();
-    if (!canSubmit) return;
-    setSaving(true);
-    setError("");
-    try {
-      if (isEdit) {
-        await api.put(`/personal/${transaction.id}`, {
-          label: label.trim(),
-          amount: numericAmount,
-          kind,
-          date,
-          note: note.trim() || null,
-        });
-      } else {
-        await api.post("/personal", {
-          label: label.trim(),
-          amount: numericAmount,
-          laterAmount: isInstallment ? numericLaterAmount : undefined,
-          kind,
-          date,
-          note: note.trim() || null,
-          months: numericMonths,
-        });
-      }
-      onSaved();
-    } catch (err) {
-      setError(err.message || "Impossible d'enregistrer.");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <Modal
-      title={
-        isEdit
-          ? `Modifier ${kind === "income" ? "le revenu" : "la dépense"}`
-          : kind === "income"
-          ? "Nouveau revenu"
-          : "Nouvelle dépense"
-      }
-      onClose={onClose}
-      footer={
-        <>
-          <button className="btn btn--ghost" type="button" onClick={onClose}>
-            Annuler
-          </button>
-          <button className="btn btn--primary" type="submit" form="personal-form" disabled={!canSubmit || saving}>
-            {saving ? "Enregistrement..." : "Enregistrer"}
-          </button>
-        </>
-      }
-    >
-      <form id="personal-form" onSubmit={handleSubmit}>
-        {error && <div className="form-error">{error}</div>}
-
-        <div className="field">
-          <label htmlFor="p-label">Libellé</label>
-          <input
-            id="p-label"
-            value={label}
-            onChange={(e) => setLabel(e.target.value)}
-            placeholder={kind === "income" ? "Ex: Salaire" : "Ex: Vêtements"}
-            required
-          />
-        </div>
-
-        <div className="field-row">
-          <div className="field">
-            <label htmlFor="p-amount">Montant {isInstallment ? "(1ère mensualité)" : ""} (€)</label>
-            <input
-              id="p-amount"
-              type="number"
-              min="0.01"
-              step="0.01"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              required
-            />
-          </div>
-          <div className="field">
-            <label htmlFor="p-date">{isEdit ? "Date" : "À partir du"}</label>
-            <input id="p-date" type="date" value={date} onChange={(e) => setDate(e.target.value)} required />
-          </div>
-        </div>
-
-        {!isEdit && (
-          <div className="field">
-            <label htmlFor="p-months">
-              {kind === "income" ? "Répéter pendant combien de mois ?" : "Payer en combien de fois ?"}
-            </label>
-            <input
-              id="p-months"
-              type="number"
-              min="1"
-              max="36"
-              value={months}
-              onChange={(e) => setMonths(e.target.value)}
-            />
-            {numericMonths > 1 && kind === "income" && (
-              <div className="text-muted" style={{ fontSize: 12.5, marginTop: 6 }}>
-                {formatAmount(numericAmount)} par mois pendant {numericMonths} mois.
-              </div>
-            )}
-          </div>
-        )}
-
-        {!isEdit && isInstallment && (
-          <>
-            <div className="field">
-              <label style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 400 }}>
-                <input
-                  type="checkbox"
-                  checked={sameAsFirst}
-                  onChange={(e) => setSameAsFirst(e.target.checked)}
-                  style={{ width: "auto" }}
-                />
-                Les mensualités suivantes ont le même montant que la 1ère
-              </label>
-            </div>
-
-            {!sameAsFirst && (
-              <div className="field">
-                <label htmlFor="p-later-amount">Montant des mensualités suivantes (€)</label>
-                <input
-                  id="p-later-amount"
-                  type="number"
-                  min="0.01"
-                  step="0.01"
-                  value={laterAmount}
-                  onChange={(e) => setLaterAmount(e.target.value)}
-                  required
-                />
-              </div>
-            )}
-
-            {numericAmount > 0 && numericLaterAmount > 0 && (
-              <div className="text-muted" style={{ fontSize: 12.5, marginTop: -10, marginBottom: 16 }}>
-                {sameAsFirst
-                  ? `Soit ${formatAmount(numericAmount)} par mois pendant ${numericMonths} mois.`
-                  : `Soit ${formatAmount(numericAmount)} puis ${formatAmount(numericLaterAmount)} par mois pendant ${numericMonths - 1} mois.`}
-              </div>
-            )}
-          </>
-        )}
-
-        <div className="field">
-          <label htmlFor="p-note">Note (optionnel)</label>
-          <textarea id="p-note" rows={2} value={note} onChange={(e) => setNote(e.target.value)} />
-        </div>
-      </form>
-    </Modal>
   );
 }

@@ -27,6 +27,7 @@ backupRouter.get(
       sharePayments,
       personalTransactions,
       recurringGenerations,
+      settlements,
     ] = await Promise.all([
       prisma.user.findMany(),
       prisma.category.findMany(),
@@ -38,6 +39,7 @@ backupRouter.get(
       prisma.sharePayment.findMany(),
       prisma.personalTransaction.findMany(),
       prisma.recurringGeneration.findMany(),
+      prisma.settlement.findMany(),
     ]);
 
     const filename = `appartbudget-sauvegarde-${new Date().toISOString().slice(0, 10)}.json`;
@@ -58,6 +60,7 @@ backupRouter.get(
         sharePayments,
         personalTransactions,
         recurringGenerations,
+        settlements,
       },
     });
   })
@@ -78,6 +81,7 @@ const importSchema = z.object({
     sharePayments: arr(),
     personalTransactions: arr(),
     recurringGenerations: arr(),
+    settlements: arr(),
   }),
 });
 
@@ -104,6 +108,7 @@ backupRouter.post(
     await prisma.$transaction(async (tx) => {
       // Suppression dans l'ordre inverse des dependances (enfants d'abord).
       await tx.recurringGeneration.deleteMany();
+      await tx.settlement.deleteMany();
       await tx.personalTransaction.deleteMany();
       await tx.sharePayment.deleteMany();
       await tx.expenseShare.deleteMany();
@@ -150,6 +155,9 @@ backupRouter.post(
       }
       if (data.recurringGenerations.length) {
         await tx.recurringGeneration.createMany({ data: withDates(data.recurringGenerations, ["createdAt"]) });
+      }
+      if (data.settlements.length) {
+        await tx.settlement.createMany({ data: withDates(data.settlements, ["date", "createdAt"]) });
       }
     });
 

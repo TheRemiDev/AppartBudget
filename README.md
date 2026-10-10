@@ -1,33 +1,40 @@
 # AppartBudget
 
 Application privée de suivi du budget et des dépenses du foyer, pensée pour
-deux personnes. Chacun peut ajouter des dépenses (fixes ou exceptionnelles),
-les répartir comme il le souhaite (parts égales, pourcentages ou montants
-personnalisés), et confirmer de son côté le règlement de sa part. Le tableau
-de bord donne une vue claire par semaine, mois ou année, avec des graphiques
-de répartition et d'évolution.
+deux personnes qui se font confiance. Chacun ajoute des dépenses (une fois,
+chaque mois ou en plusieurs fois), les répartit comme il le souhaite, note ce
+qu'il a payé — y compris à la place de l'autre — et voit à tout moment qui
+doit quoi à qui.
 
 ## Fonctionnalités
 
 - **Authentification sécurisée** — comptes nominatifs (pas d'inscription
   publique), mots de passe hashés (bcrypt), sessions signées (JWT en cookie
   `httpOnly`), limitation du taux de tentatives de connexion.
-- **Catégories personnalisables** — créez vos propres types de dépenses
-  (loyer, électricité, gaz, internet, courses, loisirs...) avec icône,
-  couleur et type par défaut (fixe / exceptionnel).
-- **Dépenses & répartition** — chaque dépense peut être répartie entre les
-  membres du foyer en parts égales, en pourcentages ou en montants
-  personnalisés. Chaque personne confirme uniquement **sa propre part** —
-  personne ne peut valider le paiement de l'autre.
-- **Charges récurrentes** — définissez le loyer, l'électricité, le gaz,
-  l'internet... une fois, avec leur jour d'échéance ; l'application génère
-  automatiquement la dépense du mois (tâche planifiée nocturne, sans
-  doublons).
-- **Tableau de bord** — totaux par période (semaine / mois / année),
-  répartition par catégorie (camembert), évolution sur 6 mois (barres),
-  montant réglé / en attente par personne, liste des paiements à confirmer.
-- **Design** sobre, moderne, clair, adapté au thème clair/sombre du
-  système.
+- **Un seul formulaire pour toutes les dépenses** — « Une seule fois »,
+  « Chaque mois » (charge récurrente) ou « En plusieurs fois » (achat
+  échelonné). Le type de frais et le montant habituel de la catégorie sont
+  pré-remplis.
+- **Répartition libre** — parts égales, pourcentages ou montants
+  personnalisés, avec indication de ce qu'il reste à répartir.
+- **Paiements** — « J'ai payé » en un clic, paiement partiel daté, paiement de
+  la part de l'autre à sa place. Foyer de confiance : chacun peut corriger ou
+  annuler n'importe quel paiement, l'historique garde qui a payé quoi.
+- **Entre vous** — solde net sur tout l'historique (ce que chacun a avancé
+  pour l'autre) et enregistrement des remboursements directs (virement,
+  espèces…).
+- **Charges récurrentes** — générées automatiquement 3 mois à l'avance ;
+  modifier, mettre en pause ou supprimer une charge met aussi à jour les
+  échéances à venir encore non payées.
+- **Tableau de bord** — ce qu'il me reste à payer (retards inclus), solde
+  entre vous, totaux par période (semaine / mois / année) et par type,
+  répartition par catégorie, évolution sur 6 mois, historique des paiements et
+  remboursements, rapport PDF.
+- **Budget personnel** — revenus et dépenses de chacun (une fois, chaque mois
+  ou sur plusieurs mois), avec la part du foyer déduite pour obtenir le
+  « reste à vivre ».
+- **Sauvegarde** — export/import complet de toutes les données.
+- **Design** clair, adapté au thème clair/sombre du système et au mobile.
 
 ## Stack technique
 

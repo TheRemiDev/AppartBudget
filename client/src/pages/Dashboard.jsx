@@ -1,124 +1,155 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { api } from "../api/client.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useConfirm, useToast } from "../context/UIContext.jsx";
 import PeriodSelector from "../components/PeriodSelector.jsx";
 import CategoryPieChart from "../components/CategoryPieChart.jsx";
-import TrendBarChart from "../components/TrendBarChart.jsx";
+import TrendBarChart, { TrendLegend } from "../components/TrendBarChart.jsx";
 import Avatar from "../components/Avatar.jsx";
 import Icon from "../components/Icon.jsx";
 import Select from "../components/Select.jsx";
+import ExpenseFormModal from "../components/ExpenseFormModal.jsx";
+import SharePaymentModal from "../components/SharePaymentModal.jsx";
+import SettlementModal from "../components/SettlementModal.jsx";
 import { formatAmount, formatDate, formatDateShort } from "../utils/format.js";
 import { getPeriodRange, formatPeriodLabel } from "../utils/period.js";
+import { KIND_INFO } from "../utils/kind.js";
 
 export default function Dashboard() {
   const { user } = useAuth();
   const showToast = useToast();
   const confirmAction = useConfirm();
-  const [cancelingPaymentId, setCancelingPaymentId] = useState(null);
   const [period, setPeriod] = useState("month");
   const [anchor, setAnchor] = useState(new Date());
   const [summary, setSummary] = useState(null);
   const [trend, setTrend] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [confirmingId, setConfirmingId] = useState(null);
-  const [payments, setPayments] = useState([]);
-  const [payerFilter, setPayerFilter] = useState("all");
-  const [exportingPdf, setExportingPdf] = useState(false);
+  const [toPay, setToPay] = useState(null);
   const [balance, setBalance] = useState(null);
+  const [history, setHistory] = useState([]);
+  const [payerFilter, setPayerFilter] = useState("all");
+  const [users, setUsers] = useState([]);
+  const [categories, setCategories] = useState([]);
+  const [payingId, setPayingId] = useState(null);
+  const [deletingId, setDeletingId] = useState(null);
+  const [exportingPdf, setExportingPdf] = useState(false);
+  const [expenseModalOpen, setExpenseModalOpen] = useState(false);
+  const [paymentModal, setPaymentModal] = useState(null);
+  const [settlementModal, setSettlementModal] = useState(null);
 
-  function loadBalance() {
-    api.get("/dashboard/balance").then((res) => setBalance(res));
+  const periodLabel = formatPeriodLabel(period, anchor);
+
+  function rangeParams() {
+    const { from, to } = getPeriodRange(period, anchor);
+    return { from: from.toISOString(), to: to.toISOString() };
+  }
+
+  async function loadSummary() {
+    const { from, to } = rangeParams();
+    const [summaryRes, trendRes] = await Promise.all([
+      api.get(`/dashboard/summary?from=${from}&to=${to}`),
+      api.get(`/dashboard/trend?months=6`),
+    ]);
+    setSummary(summaryRes);
+    setTrend(trendRes.trend);
+  }
+
+  async function loadHistory() {
+    const { from, to } = rangeParams();
+    const [paymentsRes, settlementsRes] = await Promise.all([
+      api.get(`/dashboard/payments?${new URLSearchParams({ from, to })}`),
+      api.get(`/settlements?${new URLSearchParams({ from, to })}`),
+    ]);
+    const rows = [
+      ...paymentsRes.payments.map((p) => ({ type: "payment", ...p })),
+      ...settlementsRes.settlements.map((s) => ({ type: "settlement", ...s })),
+    ].sort((a, b) => new Date(b.date) - new Date(a.date));
+    setHistory(rows);
+  }
+
+  async function loadToPay() {
+    setToPay(await api.get("/dashboard/to-pay"));
+  }
+
+  async function loadBalance() {
+    setBalance(await api.get("/dashboard/balance"));
+  }
+
+  function refreshMoney() {
+    loadSummary();
+    loadHistory();
+    loadToPay();
+    loadBalance();
   }
 
   useEffect(() => {
+    Promise.all([api.get("/users"), api.get("/categories")]).then(([u, c]) => {
+      setUsers(u.users);
+      setCategories(c.categories);
+    });
+    loadToPay();
     loadBalance();
   }, []);
 
   useEffect(() => {
-    let cancelled = false;
     setLoading(true);
-    const { from, to } = getPeriodRange(period, anchor);
-    Promise.all([
-      api.get(`/dashboard/summary?from=${from.toISOString()}&to=${to.toISOString()}`),
-      api.get(`/dashboard/trend?months=6`),
-    ])
-      .then(([summaryRes, trendRes]) => {
-        if (cancelled) return;
-        setSummary(summaryRes);
-        setTrend(trendRes.trend);
-      })
-      .finally(() => !cancelled && setLoading(false));
-    return () => {
-      cancelled = true;
-    };
+    Promise.all([loadSummary(), loadHistory()]).finally(() => setLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [period, anchor]);
 
-  function loadPayments() {
-    const { from, to } = getPeriodRange(period, anchor);
-    const params = new URLSearchParams({ from: from.toISOString(), to: to.toISOString() });
-    if (payerFilter !== "all") params.set("userId", payerFilter);
-    return api.get(`/dashboard/payments?${params.toString()}`).then((res) => setPayments(res.payments));
-  }
-
-  useEffect(() => {
-    loadPayments().catch(() => {});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [period, anchor, payerFilter]);
-
-  async function confirmShare(expenseId, shareId) {
-    setConfirmingId(expenseId);
+  async function quickPay(item) {
+    setPayingId(item.shareId);
     try {
-      await api.patch(`/expenses/${expenseId}/shares/${shareId}`, { paid: true });
-      const { from, to } = getPeriodRange(period, anchor);
-      const summaryRes = await api.get(
-        `/dashboard/summary?from=${from.toISOString()}&to=${to.toISOString()}`
-      );
-      setSummary(summaryRes);
-      loadBalance();
-      loadPayments();
+      await api.patch(`/expenses/${item.expenseId}/shares/${item.shareId}`, { paid: true });
+      showToast(`« ${item.label} » : votre part est notée comme payée.`);
+      refreshMoney();
     } finally {
-      setConfirmingId(null);
+      setPayingId(null);
     }
   }
 
-  async function cancelPayment(p) {
+  async function openPaymentDetails(item) {
+    const { expense } = await api.get(`/expenses/${item.expenseId}`);
+    const share = expense.shares.find((s) => s.id === item.shareId);
+    if (share) setPaymentModal({ expense, share });
+  }
+
+  async function deleteHistoryRow(row) {
+    const isSettlement = row.type === "settlement";
     const ok = await confirmAction({
-      title: "Annuler ce versement",
-      message: `Annuler le versement de ${formatAmount(p.amount)} enregistré par ${p.paidBy.name} le ${formatDate(p.date)} ? La part correspondante repassera en attente.`,
-      confirmLabel: "Annuler le versement",
+      title: isSettlement ? "Annuler ce remboursement" : "Annuler ce paiement",
+      message: isSettlement
+        ? `Annuler le remboursement de ${formatAmount(row.amount)} de ${row.fromUser.name} à ${row.toUser.name} du ${formatDate(row.date)} ?`
+        : `Annuler le paiement de ${formatAmount(row.amount)} fait par ${row.paidBy.name} le ${formatDate(row.date)} pour « ${row.expense.label} » ? Ce montant redeviendra « à payer ».`,
+      confirmLabel: isSettlement ? "Annuler le remboursement" : "Annuler le paiement",
+      cancelLabel: "Garder",
       danger: true,
     });
     if (!ok) return;
-    setCancelingPaymentId(p.id);
+    setDeletingId(row.id);
     try {
-      await api.delete(`/expenses/${p.expense.id}/shares/${p.shareId}/payments/${p.id}`);
-      showToast("Versement annulé.");
-      const { from, to } = getPeriodRange(period, anchor);
-      const summaryRes = await api.get(
-        `/dashboard/summary?from=${from.toISOString()}&to=${to.toISOString()}`
-      );
-      setSummary(summaryRes);
-      loadBalance();
-      loadPayments();
+      if (isSettlement) await api.delete(`/settlements/${row.id}`);
+      else await api.delete(`/expenses/${row.expense.id}/shares/${row.shareId}/payments/${row.id}`);
+      showToast(isSettlement ? "Remboursement annulé." : "Paiement annulé.");
+      refreshMoney();
     } finally {
-      setCancelingPaymentId(null);
+      setDeletingId(null);
     }
   }
 
   async function exportPdf() {
     setExportingPdf(true);
     try {
-      const { from, to } = getPeriodRange(period, anchor);
-      const label = formatPeriodLabel(period, anchor);
-      const params = new URLSearchParams({ from: from.toISOString(), to: to.toISOString(), label });
+      const { from, to } = rangeParams();
+      const params = new URLSearchParams({ from, to, label: periodLabel });
       const res = await fetch(`/api/dashboard/export-pdf?${params.toString()}`, { credentials: "include" });
       if (!res.ok) throw new Error("Impossible de générer le PDF.");
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `appartbudget-rapport-${label.replace(/\s+/g, "-").toLowerCase()}.pdf`;
+      a.download = `appartbudget-rapport-${periodLabel.replace(/\s+/g, "-").toLowerCase()}.pdf`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -130,50 +161,48 @@ export default function Dashboard() {
     }
   }
 
+  const filteredHistory = history.filter((row) => {
+    if (payerFilter === "all") return true;
+    return row.type === "settlement" ? row.fromUser.id === payerFilter : row.paidBy.id === payerFilter;
+  });
+
   return (
     <div>
       <div className="topbar">
         <div>
           <h1>Tableau de bord</h1>
-          <div className="topbar__subtitle">Vue d'ensemble des dépenses du foyer</div>
+          <div className="topbar__subtitle">Bonjour {user?.name}, voici où en est le budget du foyer.</div>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-          <PeriodSelector period={period} onPeriodChange={setPeriod} anchor={anchor} onAnchorChange={setAnchor} />
-          <button className="btn btn--ghost" onClick={exportPdf} disabled={exportingPdf}>
-            <Icon name="download" size={15} /> {exportingPdf ? "Génération..." : "Exporter en PDF"}
+        <div className="topbar__actions">
+          <button className="btn btn--ghost" onClick={exportPdf} disabled={exportingPdf} title={`Rapport PDF de ${periodLabel}`}>
+            <Icon name="download" size={15} /> {exportingPdf ? "Génération..." : "Rapport PDF"}
+          </button>
+          <button className="btn btn--primary" onClick={() => setExpenseModalOpen(true)}>
+            <Icon name="plus" size={15} /> Nouvelle dépense
           </button>
         </div>
       </div>
 
-      {balance && balance.users.length > 1 && balance.balances.length === 0 && (
-        <div className="balance-banner balance-banner--settled">
-          <Icon name="checkCircle" size={16} />
-          Vous êtes à égalité : aucun solde en attente entre vous.
-        </div>
-      )}
+      <div className="dash-grid">
+        <ToPayCard
+          data={toPay}
+          payingId={payingId}
+          onQuickPay={quickPay}
+          onDetails={openPaymentDetails}
+        />
+        <BetweenYouCard
+          balance={balance}
+          summary={summary}
+          periodLabel={periodLabel}
+          currentUserId={user.id}
+          onSettle={(b) => setSettlementModal(b)}
+        />
+      </div>
 
-      {balance && balance.balances.length > 0 && (
-        <div className="balance-banner">
-          {balance.balances.map((b) => {
-            const from = balance.users.find((u) => u.id === b.fromUserId);
-            const to = balance.users.find((u) => u.id === b.toUserId);
-            if (!from || !to) return null;
-            return (
-              <div className="balance-banner__row" key={`${b.fromUserId}-${b.toUserId}`}>
-                <div className="balance-banner__who">
-                  <Avatar user={from} size="sm" />
-                  <strong>{from.name}</strong>
-                  <span className="text-muted">doit</span>
-                  <Icon name="arrowRight" size={14} className="text-muted" />
-                  <Avatar user={to} size="sm" />
-                  <strong>{to.name}</strong>
-                </div>
-                <div className="balance-banner__amount">{formatAmount(b.amount)}</div>
-              </div>
-            );
-          })}
-        </div>
-      )}
+      <div className="section-heading">
+        <h2>Dépenses du foyer</h2>
+        <PeriodSelector period={period} onPeriodChange={setPeriod} anchor={anchor} onAnchorChange={setAnchor} />
+      </div>
 
       {loading || !summary ? (
         <div className="center-screen" style={{ minHeight: 240 }}>
@@ -181,83 +210,32 @@ export default function Dashboard() {
         </div>
       ) : (
         <>
-          <div className="card-grid">
+          <div className="card-grid card-grid--kpi">
             <div className="stat-card stat-card--featured">
               <div className="stat-card__top">
-                <span className="stat-card__label">Total sur la période</span>
+                <span className="stat-card__label">Total · {periodLabel}</span>
                 <span className="icon-badge icon-badge--primary">
                   <Icon name="wallet" size={17} />
                 </span>
               </div>
               <div className="stat-card__value">{formatAmount(summary.totalAmount)}</div>
-              <div className="stat-card__hint">{summary.expenseCount} dépense(s)</div>
-            </div>
-            <div className="stat-card">
-              <div className="stat-card__top">
-                <span className="stat-card__label">Frais fixes</span>
-                <span className="icon-badge icon-badge--primary">
-                  <Icon name="repeat" size={16} />
-                </span>
+              <div className="stat-card__hint">
+                {summary.expenseCount} dépense{summary.expenseCount > 1 ? "s" : ""} ·{" "}
+                <Link to="/depenses" className="stat-card__link">
+                  voir le détail
+                </Link>
               </div>
-              <div className="stat-card__value">{formatAmount(summary.totalFixed)}</div>
-              <div className="stat-card__hint">Loyer, énergie, abonnements...</div>
             </div>
-            <div className="stat-card">
-              <div className="stat-card__top">
-                <span className="stat-card__label">Frais ponctuels</span>
-                <span className="icon-badge icon-badge--info">
-                  <Icon name="shoppingBag" size={16} />
-                </span>
-              </div>
-              <div className="stat-card__value">{formatAmount(summary.totalOccasional)}</div>
-              <div className="stat-card__hint">Courses, sorties, loisirs...</div>
-            </div>
-            <div className="stat-card">
-              <div className="stat-card__top">
-                <span className="stat-card__label">Exceptionnelles</span>
-                <span className="icon-badge icon-badge--warning">
-                  <Icon name="sparkles" size={16} />
-                </span>
-              </div>
-              <div className="stat-card__value">{formatAmount(summary.totalExceptional)}</div>
-              <div className="stat-card__hint">Réparations, imprévus...</div>
-            </div>
-            {summary.byUser.map((u) => {
-              const ratio = u.assigned > 0 ? Math.min(100, Math.round((u.paid / u.assigned) * 100)) : 100;
-              return (
-                <div className="stat-card" key={u.userId}>
-                  <div className="stat-card__top">
-                    <span className="stat-card__label" style={{ display: "flex", alignItems: "center", gap: 8, textTransform: "none" }}>
-                      <Avatar user={u} size="sm" /> {u.name}
-                    </span>
-                  </div>
-                  <div className="stat-card__value">{formatAmount(u.assigned)}</div>
-                  <div className="progress-bar">
-                    <div className="progress-bar__fill" style={{ width: `${ratio}%`, background: u.color }} />
-                  </div>
-                  <div className={`stat-card__hint${u.pending > 0 ? " stat-card__hint--danger" : " stat-card__hint--success"}`}>
-                    {u.pending > 0 ? (
-                      <>{formatAmount(u.pending)} restant à confirmer</>
-                    ) : (
-                      <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
-                        <Icon name="checkCircle" size={13} /> Tout est réglé
-                      </span>
-                    )}
-                  </div>
-                  {u.disbursed > 0 && (
-                    <div className="stat-card__hint" style={{ display: "flex", alignItems: "center", gap: 5 }}>
-                      <Icon name="coins" size={12} /> {formatAmount(u.disbursed)} versés au total
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+            <KindCard kind="fixed" value={summary.totalFixed} icon="repeat" badge="primary" />
+            <KindCard kind="occasional" value={summary.totalOccasional} icon="shoppingBag" badge="info" />
+            <KindCard kind="exceptional" value={summary.totalExceptional} icon="sparkles" badge="warning" />
           </div>
 
           <div className="chart-grid">
             <div className="card">
               <div className="card__header">
                 <h3>Évolution sur 6 mois</h3>
+                <TrendLegend />
               </div>
               <div className="card__body">
                 <TrendBarChart data={trend} />
@@ -265,7 +243,7 @@ export default function Dashboard() {
             </div>
             <div className="card">
               <div className="card__header">
-                <h3>Répartition par catégorie</h3>
+                <h3>Par catégorie · {periodLabel}</h3>
               </div>
               <div className="card__body">
                 <CategoryPieChart data={summary.byCategory} />
@@ -275,143 +253,304 @@ export default function Dashboard() {
 
           <div className="card">
             <div className="card__header">
-              <h3>Mes paiements en attente</h3>
-              {summary.myPending.length > 0 && (
-                <span className="pill pill--pending">{summary.myPending.length} à confirmer</span>
-              )}
-            </div>
-            {summary.myPending.length === 0 ? (
-              <div className="empty-state">
-                <Icon name="checkCircle" size={26} />
-                <span>Rien en attente de votre côté, bien joué {user?.name} !</span>
+              <div>
+                <h3>Paiements et remboursements</h3>
+                <div className="card__subtitle">{periodLabel}</div>
               </div>
-            ) : (
-              <table className="table">
-                <thead>
-                  <tr>
-                    <th>Date</th>
-                    <th>Dépense</th>
-                    <th>Catégorie</th>
-                    <th>Ma part</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {summary.myPending.map((p) => (
-                    <tr key={p.expenseId}>
-                      <td className="text-muted">{formatDateShort(p.date)}</td>
-                      <td>{p.label}</td>
-                      <td>
-                        <span className="pill" style={{ background: `${p.categoryColor}22`, color: p.categoryColor }}>
-                          {p.categoryIcon} {p.categoryName}
-                        </span>
-                      </td>
-                      <td>
-                        <div style={{ fontWeight: 700 }}>{formatAmount(p.amount)}</div>
-                        {p.paidAmount > 0 && (
-                          <div className="text-muted" style={{ fontSize: 11.5 }}>
-                            {formatAmount(p.paidAmount)} déjà versés / {formatAmount(p.totalAmount)}
-                          </div>
-                        )}
-                      </td>
-                      <td style={{ textAlign: "right" }}>
-                        <button
-                          className="btn btn--primary btn--sm"
-                          disabled={confirmingId === p.expenseId}
-                          onClick={() => confirmShare(p.expenseId, p.shareId)}
-                        >
-                          {confirmingId === p.expenseId ? "..." : "Solder"}
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
-
-          <div className="card">
-            <div className="card__header">
-              <h3>Historique des paiements</h3>
               <Select
                 value={payerFilter}
                 onChange={setPayerFilter}
                 style={{ minWidth: 180 }}
                 options={[
-                  { value: "all", label: "Tout le monde" },
-                  ...summary.byUser.map((u) => ({ value: u.userId, label: u.name })),
+                  { value: "all", label: "Payés par tout le monde" },
+                  ...users.map((u) => ({ value: u.id, label: `Payés par ${u.name}` })),
                 ]}
               />
             </div>
-            {payments.length === 0 ? (
+            {filteredHistory.length === 0 ? (
               <div className="empty-state">
                 <Icon name="coins" size={26} />
-                <span>Aucun versement enregistré sur cette période.</span>
+                <span>Aucun paiement enregistré sur cette période.</span>
               </div>
             ) : (
-              <table className="table">
+              <table className="table table--stack">
                 <thead>
                   <tr>
                     <th>Date</th>
-                    <th>Dépense</th>
-                    <th>Paiement</th>
+                    <th>Pour</th>
+                    <th>Qui a payé</th>
                     <th>Montant</th>
                     <th></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {payments.map((p) => (
-                    <tr key={p.id}>
-                      <td className="text-muted">{formatDate(p.date)}</td>
-                      <td>
-                        <div style={{ fontWeight: 600 }}>{p.expense.label}</div>
-                        <span
-                          className="pill"
-                          style={{ background: `${p.expense.categoryColor}22`, color: p.expense.categoryColor }}
-                        >
-                          {p.expense.categoryIcon} {p.expense.categoryName}
-                        </span>
-                        {p.note && (
-                          <div className="text-muted" style={{ fontSize: 12, marginTop: 4 }}>
-                            {p.note}
+                  {filteredHistory.map((row) =>
+                    row.type === "settlement" ? (
+                      <tr key={`s-${row.id}`}>
+                        <td className="text-muted" data-label="Date">{formatDate(row.date)}</td>
+                        <td className="table__primary">
+                          <div style={{ fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>
+                            <Icon name="swap" size={14} /> Remboursement
                           </div>
-                        )}
-                      </td>
-                      <td>
-                        <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
-                          <Avatar user={p.paidBy} size="sm" />
-                          <span style={{ fontWeight: 600 }}>{p.paidBy.name}</span>
-                          {!p.isForSelf && (
-                            <>
-                              <Icon name="arrowRight" size={13} className="text-muted" />
-                              <Avatar user={p.forUser} size="sm" />
-                              <span style={{ fontWeight: 600 }}>{p.forUser.name}</span>
-                            </>
-                          )}
-                        </div>
-                        <div className="text-muted" style={{ fontSize: 11.5, marginTop: 3 }}>
-                          {p.isForSelf ? "Pour sa propre part" : `Pour la part de ${p.forUser.name}`}
-                        </div>
-                      </td>
-                      <td style={{ fontWeight: 700 }}>{formatAmount(p.amount)}</td>
-                      <td style={{ textAlign: "right" }}>
-                        <button
-                          className="icon-btn icon-btn--danger"
-                          title="Annuler ce versement"
-                          onClick={() => cancelPayment(p)}
-                          disabled={cancelingPaymentId === p.id}
-                        >
-                          <Icon name="trash" size={14} />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
+                          {row.note && <div className="text-muted" style={{ fontSize: 12, marginTop: 3 }}>{row.note}</div>}
+                        </td>
+                        <td data-label="Qui a payé" data-block>
+                          <PersonFlow from={row.fromUser} to={row.toUser} />
+                          <div className="text-muted" style={{ fontSize: 11.5, marginTop: 3 }}>
+                            a remboursé {row.toUser.name}
+                          </div>
+                        </td>
+                        <td data-label="Montant" style={{ fontWeight: 700 }}>{formatAmount(row.amount)}</td>
+                        <td className="table__actions">
+                          <button className="icon-btn icon-btn--danger" title="Annuler ce remboursement" onClick={() => deleteHistoryRow(row)} disabled={deletingId === row.id}>
+                            <Icon name="trash" size={14} />
+                          </button>
+                        </td>
+                      </tr>
+                    ) : (
+                      <tr key={`p-${row.id}`}>
+                        <td className="text-muted" data-label="Date">{formatDate(row.date)}</td>
+                        <td className="table__primary">
+                          <div style={{ fontWeight: 600, marginBottom: 4 }}>{row.expense.label}</div>
+                          <span className="pill" style={{ background: `${row.expense.categoryColor}22`, color: row.expense.categoryColor }}>
+                            {row.expense.categoryIcon} {row.expense.categoryName}
+                          </span>
+                          {row.note && <div className="text-muted" style={{ fontSize: 12, marginTop: 4 }}>{row.note}</div>}
+                        </td>
+                        <td data-label="Qui a payé" data-block>
+                          <PersonFlow from={row.paidBy} to={row.isForSelf ? null : row.forUser} />
+                          <div className="text-muted" style={{ fontSize: 11.5, marginTop: 3 }}>
+                            {row.isForSelf ? "sa propre part" : `à la place de ${row.forUser.name}`}
+                          </div>
+                        </td>
+                        <td data-label="Montant" style={{ fontWeight: 700 }}>{formatAmount(row.amount)}</td>
+                        <td className="table__actions">
+                          <button className="icon-btn icon-btn--danger" title="Annuler ce paiement" onClick={() => deleteHistoryRow(row)} disabled={deletingId === row.id}>
+                            <Icon name="trash" size={14} />
+                          </button>
+                        </td>
+                      </tr>
+                    )
+                  )}
                 </tbody>
               </table>
             )}
           </div>
         </>
       )}
+
+      {expenseModalOpen && (
+        <ExpenseFormModal
+          categories={categories}
+          users={users}
+          onClose={() => setExpenseModalOpen(false)}
+          onSaved={(message) => {
+            setExpenseModalOpen(false);
+            showToast(message);
+            refreshMoney();
+          }}
+        />
+      )}
+
+      {paymentModal && (
+        <SharePaymentModal
+          expense={paymentModal.expense}
+          share={paymentModal.share}
+          onClose={() => setPaymentModal(null)}
+          onChanged={refreshMoney}
+        />
+      )}
+
+      {settlementModal && (
+        <SettlementModal
+          users={users}
+          initial={settlementModal}
+          onClose={() => setSettlementModal(null)}
+          onSaved={(message) => {
+            setSettlementModal(null);
+            showToast(message);
+            refreshMoney();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function KindCard({ kind, value, icon, badge }) {
+  const info = KIND_INFO[kind];
+  return (
+    <div className="stat-card">
+      <div className="stat-card__top">
+        <span className="stat-card__label">{info.plural}</span>
+        <span className={`icon-badge icon-badge--${badge}`}>
+          <Icon name={icon} size={16} />
+        </span>
+      </div>
+      <div className="stat-card__value">{formatAmount(value)}</div>
+      <div className="stat-card__hint">{info.hint}</div>
+    </div>
+  );
+}
+
+function PersonFlow({ from, to }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
+      <Avatar user={from} size="sm" />
+      <span style={{ fontWeight: 600 }}>{from.name}</span>
+      {to && (
+        <>
+          <Icon name="arrowRight" size={13} className="text-muted" />
+          <Avatar user={to} size="sm" />
+          <span style={{ fontWeight: 600 }}>{to.name}</span>
+        </>
+      )}
+    </div>
+  );
+}
+
+function ToPayCard({ data, payingId, onQuickPay, onDetails }) {
+  return (
+    <div className="card">
+      <div className="card__header">
+        <div>
+          <h3>À payer de mon côté</h3>
+          <div className="card__subtitle">Mois en cours et retards éventuels</div>
+        </div>
+        {data && data.items.length > 0 && <span className="amount-badge amount-badge--danger">{formatAmount(data.total)}</span>}
+      </div>
+      {!data ? (
+        <div className="center-screen" style={{ minHeight: 120 }}>
+          <div className="spinner" />
+        </div>
+      ) : data.items.length === 0 ? (
+        <div className="empty-state empty-state--compact">
+          <Icon name="checkCircle" size={24} />
+          <span>Rien à payer pour l'instant, tout est à jour.</span>
+        </div>
+      ) : (
+        <div className="todo-list">
+          {data.items.map((item) => (
+            <div className="todo-item" key={item.shareId}>
+              <div className="todo-item__main">
+                <div className="todo-item__title">
+                  <span>{item.categoryIcon}</span>
+                  <span>{item.label}</span>
+                  {item.overdue && <span className="pill pill--pending">En retard</span>}
+                </div>
+                <div className="todo-item__meta">
+                  {formatDateShort(item.date)}
+                  {item.paidAmount > 0 && ` · ${formatAmount(item.paidAmount)} déjà payés sur ${formatAmount(item.shareAmount)}`}
+                </div>
+              </div>
+              <div className="todo-item__amount">{formatAmount(item.remaining)}</div>
+              <div className="todo-item__actions">
+                <button className="btn btn--primary btn--xs" onClick={() => onQuickPay(item)} disabled={payingId === item.shareId}>
+                  {payingId === item.shareId ? "…" : "J'ai payé"}
+                </button>
+                <button className="icon-btn icon-btn--xs" title="Payer une partie, à une autre date…" onClick={() => onDetails(item)}>
+                  <Icon name="dots" size={14} />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function BetweenYouCard({ balance, summary, periodLabel, currentUserId, onSettle }) {
+  if (!balance) {
+    return (
+      <div className="card">
+        <div className="center-screen" style={{ minHeight: 160 }}>
+          <div className="spinner" />
+        </div>
+      </div>
+    );
+  }
+  const name = (id) => balance.users.find((u) => u.id === id);
+
+  function sentence(b) {
+    const from = name(b.fromUserId);
+    const to = name(b.toUserId);
+    if (b.fromUserId === currentUserId) return <>Vous devez <strong>{formatAmount(b.amount)}</strong> à {to?.name}</>;
+    if (b.toUserId === currentUserId) return <>{from?.name} vous doit <strong>{formatAmount(b.amount)}</strong></>;
+    return <>{from?.name} doit <strong>{formatAmount(b.amount)}</strong> à {to?.name}</>;
+  }
+
+  return (
+    <div className="card">
+      <div className="card__header">
+        <div>
+          <h3>Entre vous</h3>
+          <div className="card__subtitle">Qui a avancé de l'argent pour l'autre</div>
+        </div>
+      </div>
+      <div className="card__body">
+        {balance.balances.length === 0 ? (
+          <div className="balance-line balance-line--settled">
+            <Icon name="checkCircle" size={18} />
+            <span>Vous êtes quittes : personne ne doit rien à l'autre.</span>
+          </div>
+        ) : (
+          balance.balances.map((b) => (
+            <div className="balance-line" key={`${b.fromUserId}-${b.toUserId}`}>
+              <div className="balance-line__who">
+                <Avatar user={name(b.fromUserId)} size="sm" />
+                <Icon name="arrowRight" size={13} className="text-muted" />
+                <Avatar user={name(b.toUserId)} size="sm" />
+                <span>{sentence(b)}</span>
+              </div>
+              <button className="btn btn--ghost btn--sm" onClick={() => onSettle(b)}>
+                <Icon name="swap" size={14} /> Rembourser
+              </button>
+            </div>
+          ))
+        )}
+        <p className="card__footnote">
+          Calculé sur tout l'historique : ce que chacun a payé à la place de l'autre, moins les remboursements.
+        </p>
+
+        {summary && summary.byUser.length > 0 && (
+          <div className="person-shares">
+            <div className="section-label">Part de chacun · {periodLabel}</div>
+            {summary.byUser.map((u) => {
+              const ratio = u.assigned > 0 ? Math.min(100, Math.round((u.paid / u.assigned) * 100)) : 100;
+              return (
+                <div className="person-share" key={u.userId}>
+                  <div className="person-share__top">
+                    <span className="person-share__name">
+                      <Avatar user={u} size="sm" /> {u.userId === currentUserId ? "Vous" : u.name}
+                    </span>
+                    <span className="person-share__amount">{formatAmount(u.assigned)}</span>
+                  </div>
+                  <div className="progress-bar">
+                    <div className="progress-bar__fill" style={{ width: `${ratio}%`, background: u.color }} />
+                  </div>
+                  <div className="person-share__meta">
+                    {u.assigned <= 0.005 ? (
+                      <span className="text-muted">Aucune dépense sur la période</span>
+                    ) : u.pending > 0.005 ? (
+                      <span>
+                        Payé {formatAmount(u.paid)} · <span style={{ color: "var(--color-danger)", fontWeight: 600 }}>reste {formatAmount(u.pending)}</span>
+                      </span>
+                    ) : (
+                      <span style={{ color: "var(--color-success)", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 4 }}>
+                        <Icon name="checkCircle" size={13} /> Tout est payé
+                      </span>
+                    )}
+                    {u.advancedForOthers > 0.005 && (
+                      <span className="text-muted"> · {formatAmount(u.advancedForOthers)} avancés pour l'autre</span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
