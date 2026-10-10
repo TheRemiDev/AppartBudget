@@ -197,7 +197,7 @@ export async function streamMonthlyReportPdf(res, { from, to, periodLabel }) {
       where: { date: dateRange },
       include: {
         category: true,
-        shares: { include: { user: true, payments: true } },
+        shares: { include: { user: true, payments: { orderBy: { date: "asc" } } } },
       },
       orderBy: { date: "asc" },
     }),
@@ -238,8 +238,15 @@ export async function streamMonthlyReportPdf(res, { from, to, periodLabel }) {
           assigned += s.amount;
           paid += Math.min(round2(s.payments.reduce((sum, p) => sum + p.amount, 0)), s.amount);
         }
+        // Plafonne chaque versement au montant reellement du sur la part
+        // (dans l'ordre chronologique) : un versement ne devrait jamais
+        // depasser la part, sauf donnee historique incoherente (ex: part
+        // reduite via une modification de la depense apres coup).
+        let remaining = s.amount;
         for (const p of s.payments) {
-          if (p.paidByUserId === u.id) disbursed += p.amount;
+          const credited = Math.max(0, Math.min(p.amount, remaining));
+          remaining = round2(remaining - credited);
+          if (p.paidByUserId === u.id) disbursed += credited;
         }
       }
     }
@@ -336,7 +343,7 @@ export async function streamMonthlyReportPdf(res, { from, to, periodLabel }) {
   doc.y += 10;
 
   if (byUser.length > 0) {
-    drawCardGrid(doc, byUser, 70, 200, (u, x, y, w) => {
+    drawCardGrid(doc, byUser, 84, 200, (u, x, y, w) => {
       const pad = 14;
       drawAvatar(doc, x + pad + 9, y + pad + 7, 9, { initial: u.name.charAt(0).toUpperCase(), color: u.color });
       doc.font("Helvetica-Bold").fontSize(10.5).fillColor(COLOR_TEXT);
@@ -358,6 +365,15 @@ export async function streamMonthlyReportPdf(res, { from, to, periodLabel }) {
         doc.font("Helvetica-Bold").fontSize(8.5).fillColor(COLOR_SUCCESS);
         doc.text("Tout est réglé", x + pad, statusY, { width: barW, lineBreak: false });
       }
+
+      // Qui a paye combien : meme information que la carte equivalente du
+      // tableau de bord ("X € versés au total"), demandee explicitement
+      // pour que le PDF reflete la meme chose que le site.
+      doc.font("Helvetica").fontSize(8).fillColor(COLOR_FAINT);
+      doc.text(`${formatAmount(u.disbursed)} versés au total`, x + pad, statusY + 13, {
+        width: barW,
+        lineBreak: false,
+      });
     });
   }
 
