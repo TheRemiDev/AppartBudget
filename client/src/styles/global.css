@@ -1,36 +1,42 @@
 :root {
-  --font-sans: -apple-system, "Segoe UI", Roboto, Inter, Helvetica, Arial, sans-serif;
+  --font-sans: "Inter", -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-display: "Lexend", var(--font-sans);
 
-  --color-bg: #f5f6f8;
+  --color-bg: #f3f2fb;
   --color-surface: #ffffff;
-  --color-surface-2: #f0f1f4;
-  --color-surface-3: #e7e9ee;
-  --color-border: #e5e7eb;
-  --color-border-strong: #d4d7dd;
-  --color-text: #13151a;
-  --color-text-muted: #666b76;
-  --color-text-faint: #9a9fa8;
+  --color-surface-2: #f6f5fb;
+  --color-surface-3: #ece9f7;
+  --color-border: #e7e4f3;
+  --color-border-strong: #d8d3ec;
+  --color-text: #171427;
+  --color-text-muted: #635f78;
+  --color-text-faint: #9994ad;
 
-  --color-primary: #4f46e5;
-  --color-primary-hover: #4338ca;
-  --color-primary-soft: #eef2ff;
+  --color-primary: #6246ea;
+  --color-primary-hover: #5636d9;
+  --color-primary-soft: #efebfd;
+  --color-accent: #ec4899;
+  --color-accent-soft: #fdf0f8;
 
-  --color-success: #16a34a;
-  --color-success-soft: #ecfdf5;
-  --color-danger: #dc2626;
-  --color-danger-soft: #fef2f2;
-  --color-warning: #b45309;
-  --color-warning-soft: #fffbeb;
-  --color-info: #0e7490;
-  --color-info-soft: #ecfeff;
+  --color-success: #15957d;
+  --color-success-soft: #e7f8f3;
+  --color-danger: #e34a6f;
+  --color-danger-soft: #fdedf1;
+  --color-warning: #d97a1f;
+  --color-warning-soft: #fdf3e6;
+  --color-info: #2f80d6;
+  --color-info-soft: #eaf3fd;
 
-  --shadow-sm: 0 1px 2px rgba(17, 24, 39, 0.05);
-  --shadow-md: 0 8px 20px rgba(17, 24, 39, 0.07);
-  --shadow-lg: 0 20px 45px rgba(17, 24, 39, 0.14);
+  --gradient-brand: linear-gradient(135deg, #6246ea 0%, #9d4edd 55%, #ec4899 100%);
 
-  --radius-sm: 9px;
-  --radius-md: 13px;
-  --radius-lg: 18px;
+  --shadow-sm: 0 1px 2px rgba(45, 28, 90, 0.06);
+  --shadow-md: 0 10px 26px -4px rgba(45, 28, 90, 0.1);
+  --shadow-lg: 0 24px 55px -8px rgba(45, 28, 90, 0.2);
+  --shadow-glow: 0 10px 30px -6px rgba(98, 70, 234, 0.35);
+
+  --radius-sm: 10px;
+  --radius-md: 16px;
+  --radius-lg: 22px;
 
   /* Courbes avec un vrai "punch" (les easings CSS standard sont trop
      faibles pour se sentir intentionnels) : ease-out pour ce qui entre
@@ -51,32 +57,37 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --color-bg: #0c0e13;
-    --color-surface: #15181f;
-    --color-surface-2: #1c202a;
-    --color-surface-3: #262b36;
-    --color-border: #262b35;
-    --color-border-strong: #343b48;
-    --color-text: #f2f3f5;
-    --color-text-muted: #9aa1ad;
-    --color-text-faint: #6b7280;
+    --color-bg: #0e0c17;
+    --color-surface: #181524;
+    --color-surface-2: #201c2f;
+    --color-surface-3: #2a2539;
+    --color-border: #292438;
+    --color-border-strong: #3a3350;
+    --color-text: #f3f1fa;
+    --color-text-muted: #a9a3c0;
+    --color-text-faint: #726c8c;
 
-    --color-primary: #818cf8;
-    --color-primary-hover: #a5b4fc;
-    --color-primary-soft: rgba(129, 140, 248, 0.16);
+    --color-primary: #9d8bff;
+    --color-primary-hover: #b3a4ff;
+    --color-primary-soft: rgba(157, 139, 255, 0.16);
+    --color-accent: #f472b6;
+    --color-accent-soft: rgba(244, 114, 182, 0.14);
 
-    --color-success: #34d399;
-    --color-success-soft: rgba(52, 211, 153, 0.14);
-    --color-danger: #f87171;
-    --color-danger-soft: rgba(248, 113, 113, 0.14);
-    --color-warning: #fbbf24;
-    --color-warning-soft: rgba(251, 191, 36, 0.14);
-    --color-info: #22d3ee;
-    --color-info-soft: rgba(34, 211, 238, 0.14);
+    --color-success: #3dd9b8;
+    --color-success-soft: rgba(61, 217, 184, 0.14);
+    --color-danger: #fb7a9c;
+    --color-danger-soft: rgba(251, 122, 156, 0.14);
+    --color-warning: #fbb454;
+    --color-warning-soft: rgba(251, 180, 84, 0.14);
+    --color-info: #5bb1f7;
+    --color-info-soft: rgba(91, 177, 247, 0.14);
 
-    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
-    --shadow-md: 0 10px 24px rgba(0, 0, 0, 0.4);
-    --shadow-lg: 0 24px 55px rgba(0, 0, 0, 0.55);
+    --gradient-brand: linear-gradient(135deg, #7c5cff 0%, #a855f7 55%, #f472b6 100%);
+
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow-md: 0 12px 28px rgba(0, 0, 0, 0.45);
+    --shadow-lg: 0 26px 60px rgba(0, 0, 0, 0.6);
+    --shadow-glow: 0 10px 30px -6px rgba(157, 139, 255, 0.4);
 
     color-scheme: dark;
   }
@@ -95,7 +106,11 @@ body,
 body {
   margin: 0;
   font-family: var(--font-sans);
-  background: var(--color-bg);
+  background:
+    radial-gradient(circle at 12% 0%, var(--color-primary-soft), transparent 42%),
+    radial-gradient(circle at 100% 18%, var(--color-accent-soft), transparent 38%),
+    var(--color-bg);
+  background-attachment: fixed;
   color: var(--color-text);
   -webkit-font-smoothing: antialiased;
   font-variant-numeric: tabular-nums;
@@ -119,8 +134,9 @@ textarea {
 
 h1, h2, h3, h4 {
   margin: 0;
+  font-family: var(--font-display);
   font-weight: 650;
-  letter-spacing: -0.015em;
+  letter-spacing: -0.02em;
 }
 
 p {
@@ -139,13 +155,13 @@ svg {
 }
 
 .sidebar {
-  width: 236px;
+  width: 248px;
   flex-shrink: 0;
   background: var(--color-surface);
   border-right: 1px solid var(--color-border);
   display: flex;
   flex-direction: column;
-  padding: 18px 12px;
+  padding: 20px 14px;
   position: sticky;
   top: 0;
   height: 100vh;
@@ -154,28 +170,30 @@ svg {
 .sidebar__brand {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 6px 8px 22px;
+  gap: 11px;
+  padding: 6px 8px 24px;
 }
 
 .sidebar__brand-mark {
-  width: 30px;
-  height: 30px;
-  border-radius: 9px;
-  background: linear-gradient(135deg, var(--color-primary), #8b5cf6);
+  width: 34px;
+  height: 34px;
+  border-radius: 11px;
+  background: var(--gradient-brand);
   display: flex;
   align-items: center;
   justify-content: center;
   color: white;
+  font-family: var(--font-display);
   font-weight: 700;
-  font-size: 13px;
-  box-shadow: 0 4px 12px -2px rgba(79, 70, 229, 0.45);
+  font-size: 14px;
+  box-shadow: var(--shadow-glow);
 }
 
 .sidebar__brand-name {
+  font-family: var(--font-display);
   font-weight: 700;
-  font-size: 15px;
-  letter-spacing: -0.01em;
+  font-size: 15.5px;
+  letter-spacing: -0.015em;
 }
 
 .sidebar__nav {
@@ -248,7 +266,7 @@ svg {
   width: 3px;
   height: 16px;
   border-radius: 0 3px 3px 0;
-  background: var(--color-primary);
+  background: var(--gradient-brand);
 }
 
 .sidebar__footer {
@@ -393,6 +411,7 @@ svg {
 }
 
 .card__header h3 {
+  font-family: var(--font-display);
   font-size: 14.5px;
 }
 
@@ -408,6 +427,7 @@ svg {
 }
 
 .stat-card {
+  position: relative;
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
@@ -416,6 +436,35 @@ svg {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  transition: box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.stat-card:hover {
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
+}
+
+/* Met en avant la metrique principale d'une grille (ex: "Total sur la
+   periode") pour casser la monotonie d'une rangee de cartes toutes au
+   meme poids visuel. */
+.stat-card--featured {
+  background: var(--gradient-brand);
+  border-color: transparent;
+  box-shadow: var(--shadow-glow);
+  color: white;
+}
+
+.stat-card--featured .stat-card__label {
+  color: rgba(255, 255, 255, 0.78);
+}
+
+.stat-card--featured .stat-card__hint {
+  color: rgba(255, 255, 255, 0.78);
+}
+
+.stat-card--featured .icon-badge {
+  background: rgba(255, 255, 255, 0.18);
+  color: white;
 }
 
 .stat-card__top {
@@ -434,7 +483,8 @@ svg {
 }
 
 .stat-card__value {
-  font-size: 25px;
+  font-family: var(--font-display);
+  font-size: 26px;
   font-weight: 700;
   letter-spacing: -0.02em;
   line-height: 1.1;
@@ -498,13 +548,13 @@ svg {
 }
 
 .btn--primary {
-  background: var(--color-primary);
+  background: var(--gradient-brand);
   color: white;
-  box-shadow: 0 2px 8px -2px rgba(79, 70, 229, 0.5);
+  box-shadow: var(--shadow-glow);
 }
 
 .btn--primary:hover:not(:disabled) {
-  background: var(--color-primary-hover);
+  filter: brightness(1.07);
 }
 
 .btn--ghost {
@@ -530,7 +580,7 @@ svg {
 .btn--danger-solid {
   background: var(--color-danger);
   color: white;
-  box-shadow: 0 2px 8px -2px rgba(220, 38, 38, 0.5);
+  box-shadow: var(--shadow-md);
 }
 
 .btn--danger-solid:hover:not(:disabled) {
@@ -1003,20 +1053,22 @@ svg {
 }
 
 .auth-card__mark {
-  width: 46px;
-  height: 46px;
-  border-radius: 13px;
-  background: linear-gradient(135deg, var(--color-primary), #8b5cf6);
+  width: 48px;
+  height: 48px;
+  border-radius: 15px;
+  background: var(--gradient-brand);
   display: flex;
   align-items: center;
   justify-content: center;
   color: white;
+  font-family: var(--font-display);
   font-weight: 700;
   font-size: 19px;
-  box-shadow: 0 6px 18px -4px rgba(79, 70, 229, 0.5);
+  box-shadow: var(--shadow-glow);
 }
 
 .auth-card__title {
+  font-family: var(--font-display);
   font-size: 17px;
 }
 
