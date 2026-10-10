@@ -46,6 +46,20 @@ export default function Installments() {
     load();
   }
 
+  async function regenerate(plan) {
+    try {
+      const { created } = await api.post(`/installment-plans/${plan.id}/regenerate`);
+      showToast(
+        created.length
+          ? `${created.length} mensualité(s) manquante(s) recréée(s).`
+          : "Rien à recréer, le plan est déjà complet."
+      );
+      load();
+    } catch (err) {
+      showToast(err.message || "Impossible de recréer les mensualités manquantes.", "error");
+    }
+  }
+
   return (
     <div>
       <div className="topbar">
@@ -86,9 +100,19 @@ export default function Installments() {
               {plans.map((p) => {
                 const ratio = p.totalAmount > 0 ? Math.min(100, Math.round((p.paidAmount / p.totalAmount) * 100)) : 0;
                 const sameAmounts = Math.abs(p.firstInstallmentAmount - p.restInstallmentAmount) < 0.005;
+                const missing = p.installmentCount - p.expenses.length;
                 return (
                   <tr key={p.id}>
-                    <td style={{ fontWeight: 600 }}>{p.label}</td>
+                    <td style={{ fontWeight: 600 }}>
+                      {p.label}
+                      {missing > 0 && (
+                        <div style={{ marginTop: 5 }}>
+                          <span className="pill pill--pending">
+                            {missing} mensualité{missing > 1 ? "s" : ""} manquante{missing > 1 ? "s" : ""}
+                          </span>
+                        </div>
+                      )}
+                    </td>
                     <td>
                       <span className="pill" style={{ background: `${p.category.color}22`, color: p.category.color }}>
                         {p.category.icon} {p.category.name}
@@ -110,6 +134,15 @@ export default function Installments() {
                     </td>
                     <td style={{ textAlign: "right" }}>
                       <div className="row-actions">
+                        {missing > 0 && (
+                          <button
+                            className="icon-btn"
+                            title="Recréer les mensualités manquantes"
+                            onClick={() => regenerate(p)}
+                          >
+                            <Icon name="repeat" size={14} />
+                          </button>
+                        )}
                         <button className="icon-btn icon-btn--danger" title="Supprimer" onClick={() => remove(p)}>
                           <Icon name="trash" size={14} />
                         </button>

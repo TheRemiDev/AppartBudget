@@ -116,7 +116,7 @@ export default function Dashboard() {
       ) : (
         <>
           <div className="card-grid">
-            <div className="stat-card">
+            <div className="stat-card stat-card--featured">
               <div className="stat-card__top">
                 <span className="stat-card__label">Total sur la période</span>
                 <span className="icon-badge icon-badge--primary">

@@ -83,6 +83,20 @@ export default function Personal() {
     load();
   }
 
+  async function regenerateGroup(group) {
+    try {
+      const { created } = await api.post(`/personal/groups/${group.groupId}/regenerate`);
+      showToast(
+        created.length
+          ? `${created.length} mensualité(s) manquante(s) recréée(s).`
+          : "Rien à recréer, la série est déjà complète."
+      );
+      load();
+    } catch (err) {
+      showToast(err.message || "Impossible de recréer les mensualités manquantes.", "error");
+    }
+  }
+
   async function toggleRecurringActive(template) {
     await api.put(`/personal-recurring/${template.id}`, {
       label: template.label,
@@ -366,32 +380,57 @@ export default function Personal() {
                   </tr>
                 </thead>
                 <tbody>
-                  {groups.map((g) => (
-                    <tr key={g.groupId}>
-                      <td style={{ fontWeight: 600 }}>
-                        {g.label}
-                        {g.note && (
-                          <div className="text-muted" style={{ fontSize: 12, marginTop: 3, fontWeight: 400 }}>
-                            {g.note}
-                          </div>
-                        )}
-                      </td>
-                      <td style={{ fontWeight: 700, color: g.kind === "income" ? "var(--color-success)" : "var(--color-text)" }}>
-                        {formatAmount(g.totalAmount)}
-                        <span className="text-muted" style={{ fontWeight: 500 }}> / {g.installmentCount} mois</span>
-                      </td>
-                      <td className="text-muted">
-                        {formatDate(g.firstDate)} → {formatDate(g.lastDate)}
-                      </td>
-                      {isOwn && (
-                        <td style={{ textAlign: "right" }}>
-                          <button className="icon-btn icon-btn--danger" title="Supprimer la série" onClick={() => removeGroup(g)}>
-                            <Icon name="trash" size={14} />
-                          </button>
+                  {groups.map((g) => {
+                    const missing = g.installmentCount - g.itemCount;
+                    return (
+                      <tr key={g.groupId}>
+                        <td style={{ fontWeight: 600 }}>
+                          {g.label}
+                          {g.note && (
+                            <div className="text-muted" style={{ fontSize: 12, marginTop: 3, fontWeight: 400 }}>
+                              {g.note}
+                            </div>
+                          )}
+                          {missing > 0 && (
+                            <div style={{ marginTop: 5 }}>
+                              <span className="pill pill--pending">
+                                {missing} mensualité{missing > 1 ? "s" : ""} manquante{missing > 1 ? "s" : ""}
+                              </span>
+                            </div>
+                          )}
                         </td>
-                      )}
-                    </tr>
-                  ))}
+                        <td style={{ fontWeight: 700, color: g.kind === "income" ? "var(--color-success)" : "var(--color-text)" }}>
+                          {formatAmount(g.totalAmount)}
+                          <span className="text-muted" style={{ fontWeight: 500 }}>
+                            {" "}
+                            / {g.itemCount}
+                            {missing > 0 ? ` sur ${g.installmentCount}` : ""} mois
+                          </span>
+                        </td>
+                        <td className="text-muted">
+                          {formatDate(g.firstDate)} → {formatDate(g.lastDate)}
+                        </td>
+                        {isOwn && (
+                          <td style={{ textAlign: "right" }}>
+                            <div className="row-actions">
+                              {missing > 0 && (
+                                <button
+                                  className="icon-btn"
+                                  title="Recréer les mensualités manquantes"
+                                  onClick={() => regenerateGroup(g)}
+                                >
+                                  <Icon name="repeat" size={14} />
+                                </button>
+                              )}
+                              <button className="icon-btn icon-btn--danger" title="Supprimer la série" onClick={() => removeGroup(g)}>
+                                <Icon name="trash" size={14} />
+                              </button>
+                            </div>
+                          </td>
+                        )}
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

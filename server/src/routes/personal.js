@@ -72,6 +72,7 @@ personalRouter.get(
       kind: g.kind,
       note: g.note,
       installmentCount: g.installmentCount,
+      itemCount: g.items.length,
       totalAmount: round2(g.items.reduce((s, i) => s + i.amount, 0)),
       firstDate: g.items[0].date,
       lastDate: g.items[g.items.length - 1].date,
@@ -180,5 +181,72 @@ personalRouter.delete(
       where: { groupId: req.params.groupId, userId: req.user.id },
     });
     res.json({ ok: true });
+  })
+);
+
+// Recree les mensualites manquantes d'une serie (ex: ligne supprimee par
+// erreur) a partir des lignes restantes : le jour du mois et le montant
+// (1ere mensualite vs suivantes) sont deduits des mensualites encore
+// presentes. Ne fait rien si la serie n'a plus aucune ligne (rien dont
+// deduire la reconstruction) ou si aucune mensualite ne manque.
+personalRouter.post(
+  "/groups/:groupId/regenerate",
+  asyncHandler(async (req, res) => {
+    const rows = await prisma.personalTransaction.findMany({
+      where: { groupId: req.params.groupId, userId: req.user.id },
+      orderBy: { installmentIndex: "asc" },
+    });
+    if (rows.length === 0) {
+      return res.status(404).json({ error: "Série introuvable." });
+    }
+    const count = rows[0].installmentCount;
+    if (!count) {
+      return res.status(400).json({ error: "Cette série n'a pas de mensualités définies." });
+    }
+
+    const present = new Set(rows.map((r) => r.installmentIndex));
+    const missing = [];
+    for (let i = 1; i <= count; i++) {
+      if (!present.has(i)) missing.push(i);
+    }
+    if (missing.length === 0) {
+      return res.json({ created: [] });
+    }
+
+    // Reconstitue le jour du mois et le point de depart a partir d'une
+    // mensualite encore presente (date(index) = date(1) + (index-1) mois).
+    const anchor = rows[0];
+    const anchorDate = new Date(anchor.date);
+    const day = anchorDate.getDate();
+    const baseYear = anchorDate.getFullYear();
+    const baseMonth = anchorDate.getMonth() - (anchor.installmentIndex - 1);
+
+    // Montant : celui de la mensualite 1 si encore connue pour l'index 1,
+    // sinon celui des mensualites suivantes (qui partagent toutes le meme
+    // montant, sauf la 1ere qui peut differer -- voir "regler en plusieurs
+    // fois").
+    const firstRow = rows.find((r) => r.installmentIndex === 1);
+    const laterRow = rows.find((r) => r.installmentIndex > 1) || rows[0];
+    const label = rows[0].label.replace(/\s\(\d+\/\d+\)$/, "");
+
+    const created = await prisma.$transaction(
+      missing.map((index) =>
+        prisma.personalTransaction.create({
+          data: {
+            userId: req.user.id,
+            label: `${label} (${index}/${count})`,
+            amount: index === 1 ? firstRow?.amount ?? laterRow.amount : laterRow.amount,
+            kind: rows[0].kind,
+            date: new Date(baseYear, baseMonth + (index - 1), Math.min(day, 28)),
+            note: rows[0].note,
+            groupId: req.params.groupId,
+            installmentIndex: index,
+            installmentCount: count,
+          },
+        })
+      )
+    );
+
+    res.json({ created });
   })
 );

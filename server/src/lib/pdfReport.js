@@ -4,22 +4,22 @@ import { round2 } from "./shares.js";
 
 // Palette identique a celle de l'application (client/src/styles/global.css,
 // mode clair) pour que le PDF ait le meme "look" que le produit.
-const COLOR_TEXT = "#13151a";
-const COLOR_MUTED = "#666b76";
-const COLOR_FAINT = "#9a9fa8";
-const COLOR_BORDER = "#e5e7eb";
-const COLOR_SURFACE_2 = "#f0f1f4";
-const COLOR_SURFACE_3 = "#e7e9ee";
-const COLOR_PRIMARY = "#4f46e5";
-const COLOR_PRIMARY_SOFT = "#eef2ff";
-const COLOR_SUCCESS = "#16a34a";
-const COLOR_SUCCESS_SOFT = "#ecfdf5";
-const COLOR_DANGER = "#dc2626";
-const COLOR_DANGER_SOFT = "#fef2f2";
-const COLOR_WARNING = "#b45309";
-const COLOR_WARNING_SOFT = "#fffbeb";
-const COLOR_INFO = "#0e7490";
-const COLOR_INFO_SOFT = "#ecfeff";
+const COLOR_TEXT = "#171427";
+const COLOR_MUTED = "#635f78";
+const COLOR_FAINT = "#9994ad";
+const COLOR_BORDER = "#e7e4f3";
+const COLOR_SURFACE_2 = "#f6f5fb";
+const COLOR_SURFACE_3 = "#ece9f7";
+const COLOR_PRIMARY = "#6246ea";
+const COLOR_PRIMARY_SOFT = "#efebfd";
+const COLOR_SUCCESS = "#15957d";
+const COLOR_SUCCESS_SOFT = "#e7f8f3";
+const COLOR_DANGER = "#e34a6f";
+const COLOR_DANGER_SOFT = "#fdedf1";
+const COLOR_WARNING = "#d97a1f";
+const COLOR_WARNING_SOFT = "#fdf3e6";
+const COLOR_INFO = "#2f80d6";
+const COLOR_INFO_SOFT = "#eaf3fd";
 
 const KIND_LABELS = { fixed: "Fixe", occasional: "Ponctuel", exceptional: "Exceptionnel" };
 const KIND_PILL = {

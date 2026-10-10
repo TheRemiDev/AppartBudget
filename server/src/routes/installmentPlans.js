@@ -163,6 +163,72 @@ installmentPlansRouter.delete(
   })
 );
 
+// Recree les mensualites manquantes d'un achat echelonne (ex: depense
+// supprimee par erreur depuis la page Depenses) a partir des mensualites
+// encore presentes : le jour du mois, la repartition et le montant (1ere
+// mensualite vs suivantes) sont deduits du plan et des echeances restantes.
+installmentPlansRouter.post(
+  "/:id/regenerate",
+  asyncHandler(async (req, res) => {
+    const plan = await prisma.installmentPlan.findUnique({
+      where: { id: req.params.id },
+      include: { expenses: { orderBy: { installmentIndex: "asc" } } },
+    });
+    if (!plan) return res.status(404).json({ error: "Achat échelonné introuvable." });
+    if (plan.expenses.length === 0) {
+      return res.status(400).json({
+        error: "Plus aucune mensualité ne subsiste sur ce plan : impossible de reconstituer les dates.",
+      });
+    }
+
+    const present = new Set(plan.expenses.map((e) => e.installmentIndex));
+    const missing = [];
+    for (let i = 1; i <= plan.installmentCount; i++) {
+      if (!present.has(i)) missing.push(i);
+    }
+    if (missing.length === 0) {
+      return res.json({ created: [] });
+    }
+
+    const anchor = plan.expenses[0];
+    const anchorDate = new Date(anchor.date);
+    const day = anchorDate.getDate();
+    const baseYear = anchorDate.getFullYear();
+    const baseMonth = anchorDate.getMonth() - (anchor.installmentIndex - 1);
+
+    const splitConfig = JSON.parse(plan.splitConfig);
+    const participantIds = splitConfig.map((c) => c.userId);
+    const participants = participantIds.map((userId) => ({ userId }));
+
+    const firstRow = plan.expenses.find((e) => e.installmentIndex === 1);
+    const laterRow = plan.expenses.find((e) => e.installmentIndex > 1) || plan.expenses[0];
+    const percentageConfig = toPercentageConfig(plan.splitType, participantIds, splitConfig, laterRow.amount);
+
+    const created = await prisma.$transaction(
+      missing.map((index) => {
+        const amount = index === 1 ? firstRow?.amount ?? laterRow.amount : laterRow.amount;
+        const shares = computeShares(amount, "percentage", participants, percentageConfig);
+        const date = new Date(baseYear, baseMonth + (index - 1), Math.min(day, 28));
+        return prisma.expense.create({
+          data: {
+            label: `${plan.label} (${index}/${plan.installmentCount})`,
+            amount,
+            date,
+            kind: "fixed",
+            categoryId: plan.categoryId,
+            createdById: req.user.id,
+            installmentPlanId: plan.id,
+            installmentIndex: index,
+            shares: { create: shares.map((s) => ({ userId: s.userId, amount: s.amount })) },
+          },
+        });
+      })
+    );
+
+    res.json({ created });
+  })
+);
+
 function serializePlan(plan) {
   const paidAmount = plan.expenses.reduce((sum, e) => {
     const expensePaid = e.shares.reduce((s, share) => {
