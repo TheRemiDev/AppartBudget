@@ -23,7 +23,7 @@ dashboardRouter.get(
     const [expenses, users] = await Promise.all([
       prisma.expense.findMany({
         where,
-        include: { category: true, shares: { include: { payments: true } } },
+        include: { category: true, shares: { include: { payments: { orderBy: { date: "asc" } } } } },
       }),
       prisma.user.findMany({ orderBy: { createdAt: "asc" } }),
     ]);
@@ -68,8 +68,16 @@ dashboardRouter.get(
             assigned += s.amount;
             paid += paidAmountOf(s);
           }
+          // Un versement ne devrait jamais depasser le montant de la part
+          // (verifie a la creation), sauf donnee historique incoherente
+          // (ex: part reduite via modification de la depense apres coup) :
+          // on plafonne donc le credit au montant reellement du, dans
+          // l'ordre chronologique des versements.
+          let remaining = s.amount;
           for (const p of s.payments) {
-            if (p.paidByUserId === u.id) disbursed += p.amount;
+            const credited = Math.max(0, Math.min(p.amount, remaining));
+            remaining = round2(remaining - credited);
+            if (p.paidByUserId === u.id) disbursed += credited;
           }
         }
       }

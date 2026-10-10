@@ -32,7 +32,21 @@
   --radius-md: 13px;
   --radius-lg: 18px;
 
+  /* Courbes avec un vrai "punch" (les easings CSS standard sont trop
+     faibles pour se sentir intentionnels) : ease-out pour ce qui entre
+     ou reagit, ease-in-out pour ce qui se deplace deja a l'ecran. */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+
   color-scheme: light;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 @media (prefers-color-scheme: dark) {
@@ -85,6 +99,10 @@ body {
   color: var(--color-text);
   -webkit-font-smoothing: antialiased;
   font-variant-numeric: tabular-nums;
+  /* Evite le flash de surbrillance gris par defaut au toucher sur mobile
+     (Android/iOS) : les etats :active deja en place (boutons, lignes de
+     tableau...) servent de retour tactile a la place. */
+  -webkit-tap-highlight-color: transparent;
 }
 
 a {
@@ -398,7 +416,6 @@ svg {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  transition: box-shadow 0.15s ease, transform 0.15s ease;
 }
 
 .stat-card__top {
@@ -466,8 +483,13 @@ svg {
   font-size: 13.5px;
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease,
+    box-shadow 0.15s ease, transform 0.1s ease-out;
   white-space: nowrap;
+}
+
+.btn:active:not(:disabled) {
+  transform: scale(0.97);
 }
 
 .btn:disabled {
@@ -535,7 +557,12 @@ svg {
   justify-content: center;
   cursor: pointer;
   color: var(--color-text-muted);
-  transition: all 0.15s ease;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease,
+    transform 0.1s ease-out;
+}
+
+.icon-btn:active {
+  transform: scale(0.92);
 }
 
 .icon-btn:hover {
@@ -688,6 +715,18 @@ svg {
   padding: 5px;
   max-height: 260px;
   overflow-y: auto;
+  /* Toujours ouvert sous son declencheur (voir Select.jsx) : l'origine
+     reste donc en haut, pour que le menu se deploie depuis la ou l'oeil
+     se trouve deja. */
+  transform-origin: top;
+  animation: select-panel-in 140ms var(--ease-out);
+}
+
+@keyframes select-panel-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97) translateY(-4px);
+  }
 }
 
 .select__option {
@@ -747,7 +786,7 @@ svg {
   font-weight: 600;
   color: var(--color-text);
   cursor: pointer;
-  animation: toast-in 0.18s ease;
+  animation: toast-in 0.2s var(--ease-out);
 }
 
 .toast--success {
@@ -769,11 +808,11 @@ svg {
 @keyframes toast-in {
   from {
     opacity: 0;
-    transform: translateY(-8px);
+    transform: translateY(-8px) scale(0.96);
   }
   to {
     opacity: 1;
-    transform: translateY(0);
+    transform: translateY(0) scale(1);
   }
 }
 
@@ -1001,6 +1040,7 @@ svg {
   padding: 40px 20px;
   overflow-y: auto;
   z-index: 50;
+  animation: modal-overlay-in 180ms ease-out;
 }
 
 .modal {
@@ -1010,6 +1050,23 @@ svg {
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
   border: 1px solid var(--color-border);
+  /* Centre (pas ancre a un declencheur) : transform-origin reste au
+     centre, contrairement a un popover/menu qui doit partir de son
+     declencheur. */
+  animation: modal-in 220ms var(--ease-out);
+}
+
+@keyframes modal-overlay-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes modal-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(6px);
+  }
 }
 
 .modal__header {
@@ -1211,6 +1268,14 @@ svg {
 @media (max-width: 640px) {
   .category-breakdown {
     flex-direction: column;
+  }
+
+  /* En dessous de 16px, Safari iOS zoome automatiquement la page au focus
+     d'un champ : agrandit la saisie sur mobile pour l'eviter. */
+  .field input,
+  .field select,
+  .field textarea {
+    font-size: 16px;
   }
 }
 

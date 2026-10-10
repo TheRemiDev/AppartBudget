@@ -127,12 +127,41 @@ expensesRouter.put(
     const shareData = await buildShareData(payload);
 
     const expense = await prisma.$transaction(async (tx) => {
-      const existingShares = await tx.expenseShare.findMany({ where: { expenseId: req.params.id } });
+      const existingShares = await tx.expenseShare.findMany({
+        where: { expenseId: req.params.id },
+        include: { payments: true, user: { select: { name: true } } },
+      });
       const existingByUser = new Map(existingShares.map((s) => [s.userId, s]));
       const nextUserIds = new Set(shareData.map((s) => s.userId));
 
+      // Refuse toute modification qui rendrait l'historique des versements
+      // incoherent avec le montant reellement du : reduire une part en
+      // dessous de ce qui a deja ete verse dessus, ou retirer purement et
+      // simplement un participant qui a deja verse quelque chose (ce qui
+      // supprimerait son historique de versements en cascade, sans trace).
+      for (const old of existingShares) {
+        const alreadyPaid = round2(old.payments.reduce((sum, p) => sum + p.amount, 0));
+        if (alreadyPaid <= 0.005) continue;
+        if (!nextUserIds.has(old.userId)) {
+          const err = new Error(
+            `Impossible de retirer ${old.user.name} : ${alreadyPaid.toFixed(2)} € ont déjà été versés sur sa part. Annulez d'abord ce(s) versement(s) si besoin.`
+          );
+          err.status = 400;
+          throw err;
+        }
+        const next = shareData.find((s) => s.userId === old.userId);
+        if (next && next.amount < alreadyPaid - 0.005) {
+          const err = new Error(
+            `Impossible : ${old.user.name} a déjà versé ${alreadyPaid.toFixed(2)} € sur sa part, qui ne peut pas descendre en dessous de ce montant. Annulez d'abord le versement correspondant si besoin.`
+          );
+          err.status = 400;
+          throw err;
+        }
+      }
+
       // Retire les participants qui ne font plus partie de la depense
-      // (supprime aussi leurs versements en cascade).
+      // (supprime aussi leurs versements en cascade -- sans montant deja
+      // verse d'apres la verification ci-dessus).
       for (const old of existingShares) {
         if (!nextUserIds.has(old.userId)) {
           await tx.expenseShare.delete({ where: { id: old.id } });
