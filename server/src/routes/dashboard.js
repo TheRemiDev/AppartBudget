@@ -181,6 +181,57 @@ dashboardRouter.get(
   })
 );
 
+// Solde reel entre les membres du foyer, calcule sur l'integralite de
+// l'historique (pas seulement la periode affichee) : qui a avance de
+// l'argent pour la part de qui, net. C'est la question a laquelle la
+// liste "mes paiements en attente" (qui ne regarde qu'une depense a la
+// fois, sur le mois courant) ne repond pas directement.
+dashboardRouter.get(
+  "/balance",
+  asyncHandler(async (req, res) => {
+    const users = await prisma.user.findMany({ orderBy: { createdAt: "asc" }, select: { id: true, name: true, color: true } });
+    const shares = await prisma.expenseShare.findMany({
+      select: { userId: true, amount: true, payments: { orderBy: { date: "asc" }, select: { amount: true, paidByUserId: true } } },
+    });
+
+    // owed[x][y] = montant que x doit a y (y a avance pour la part de x).
+    const owed = new Map();
+    for (const u of users) owed.set(u.id, new Map());
+
+    for (const s of shares) {
+      let remaining = s.amount;
+      for (const p of s.payments) {
+        const credited = Math.max(0, Math.min(p.amount, remaining));
+        remaining = round2(remaining - credited);
+        if (credited <= 0 || p.paidByUserId === s.userId) continue;
+        const row = owed.get(s.userId);
+        if (!row) continue;
+        row.set(p.paidByUserId, round2((row.get(p.paidByUserId) || 0) + credited));
+      }
+    }
+
+    const balances = [];
+    for (let i = 0; i < users.length; i++) {
+      for (let j = i + 1; j < users.length; j++) {
+        const a = users[i];
+        const b = users[j];
+        const aOwesB = owed.get(a.id)?.get(b.id) || 0;
+        const bOwesA = owed.get(b.id)?.get(a.id) || 0;
+        const net = round2(aOwesB - bOwesA);
+        if (Math.abs(net) > 0.005) {
+          balances.push(
+            net > 0
+              ? { fromUserId: a.id, toUserId: b.id, amount: net }
+              : { fromUserId: b.id, toUserId: a.id, amount: round2(-net) }
+          );
+        }
+      }
+    }
+
+    res.json({ balances, users });
+  })
+);
+
 dashboardRouter.get(
   "/trend",
   asyncHandler(async (req, res) => {

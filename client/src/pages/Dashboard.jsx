@@ -23,6 +23,15 @@ export default function Dashboard() {
   const [payments, setPayments] = useState([]);
   const [payerFilter, setPayerFilter] = useState("all");
   const [exportingPdf, setExportingPdf] = useState(false);
+  const [balance, setBalance] = useState(null);
+
+  function loadBalance() {
+    api.get("/dashboard/balance").then((res) => setBalance(res));
+  }
+
+  useEffect(() => {
+    loadBalance();
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -43,17 +52,16 @@ export default function Dashboard() {
     };
   }, [period, anchor]);
 
-  useEffect(() => {
-    let cancelled = false;
+  function loadPayments() {
     const { from, to } = getPeriodRange(period, anchor);
     const params = new URLSearchParams({ from: from.toISOString(), to: to.toISOString() });
     if (payerFilter !== "all") params.set("userId", payerFilter);
-    api.get(`/dashboard/payments?${params.toString()}`).then((res) => {
-      if (!cancelled) setPayments(res.payments);
-    });
-    return () => {
-      cancelled = true;
-    };
+    return api.get(`/dashboard/payments?${params.toString()}`).then((res) => setPayments(res.payments));
+  }
+
+  useEffect(() => {
+    loadPayments().catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [period, anchor, payerFilter]);
 
   async function confirmShare(expenseId, shareId) {
@@ -65,6 +73,8 @@ export default function Dashboard() {
         `/dashboard/summary?from=${from.toISOString()}&to=${to.toISOString()}`
       );
       setSummary(summaryRes);
+      loadBalance();
+      loadPayments();
     } finally {
       setConfirmingId(null);
     }
@@ -108,6 +118,36 @@ export default function Dashboard() {
           </button>
         </div>
       </div>
+
+      {balance && balance.users.length > 1 && balance.balances.length === 0 && (
+        <div className="balance-banner balance-banner--settled">
+          <Icon name="checkCircle" size={16} />
+          Vous êtes à égalité : aucun solde en attente entre vous.
+        </div>
+      )}
+
+      {balance && balance.balances.length > 0 && (
+        <div className="balance-banner">
+          {balance.balances.map((b) => {
+            const from = balance.users.find((u) => u.id === b.fromUserId);
+            const to = balance.users.find((u) => u.id === b.toUserId);
+            if (!from || !to) return null;
+            return (
+              <div className="balance-banner__row" key={`${b.fromUserId}-${b.toUserId}`}>
+                <div className="balance-banner__who">
+                  <Avatar user={from} size="sm" />
+                  <strong>{from.name}</strong>
+                  <span className="text-muted">doit</span>
+                  <Icon name="arrowRight" size={14} className="text-muted" />
+                  <Avatar user={to} size="sm" />
+                  <strong>{to.name}</strong>
+                </div>
+                <div className="balance-banner__amount">{formatAmount(b.amount)}</div>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       {loading || !summary ? (
         <div className="center-screen" style={{ minHeight: 240 }}>
@@ -288,8 +328,7 @@ export default function Dashboard() {
                   <tr>
                     <th>Date</th>
                     <th>Dépense</th>
-                    <th>Payé par</th>
-                    <th>Part de</th>
+                    <th>Paiement</th>
                     <th>Montant</th>
                   </tr>
                 </thead>
@@ -312,20 +351,20 @@ export default function Dashboard() {
                         )}
                       </td>
                       <td>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
                           <Avatar user={p.paidBy} size="sm" />
-                          {p.paidBy.name}
+                          <span style={{ fontWeight: 600 }}>{p.paidBy.name}</span>
+                          {!p.isForSelf && (
+                            <>
+                              <Icon name="arrowRight" size={13} className="text-muted" />
+                              <Avatar user={p.forUser} size="sm" />
+                              <span style={{ fontWeight: 600 }}>{p.forUser.name}</span>
+                            </>
+                          )}
                         </div>
-                      </td>
-                      <td>
-                        {p.isForSelf ? (
-                          <span className="text-muted">Sa propre part</span>
-                        ) : (
-                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                            <Avatar user={p.forUser} size="sm" />
-                            {p.forUser.name}
-                          </div>
-                        )}
+                        <div className="text-muted" style={{ fontSize: 11.5, marginTop: 3 }}>
+                          {p.isForSelf ? "Pour sa propre part" : `Pour la part de ${p.forUser.name}`}
+                        </div>
                       </td>
                       <td style={{ fontWeight: 700 }}>{formatAmount(p.amount)}</td>
                     </tr>
